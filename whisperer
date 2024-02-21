@@ -1,0 +1,326 @@
+// PMax Whisperer v1.0
+// (c) MikeRhodes.com.au
+
+// First, copy the template sheet here: https://docs.google.com/spreadsheets/d/1C7h9jVfUW83a1rIte0jR9R7vUkfmAPmeh-XZGZC_EpM/copy
+// Then, paste your sheet URL below between the single quotes
+
+// Add your OpenAI API to the Settings - get one here: https://platform.openai.com/api-keys
+// Change the Settings on the sheet as desired & hit run, that's it!
+
+// Enter your URL here
+const SHEET_URL = '';
+
+
+
+// don't change the code below this line. pretty please. -------------------------------------------------------
+
+
+
+
+function main() {
+    let ss = SpreadsheetApp.openByUrl(SHEET_URL);
+    let start = new Date();
+    let s = getSettingsFromSheet();
+    Object.keys(s).forEach(key => { Logger.log(key + ': ' + s[key]); }); // log settings
+    let d = getDataForReport(s.report, s.pmaxUrl); // 
+    let p = getPrompt(s.report, d, s.lang); // prompt
+    let o = generateTextOpenAI(p, s.report, s.apiKey, s.model); // output
+    let a = s.useVoice === true ? textToSpeechOpenAI(o, s.report, s.apiKey, s.voice, s.folder) : null; // audio
+    outputToSheet(o, s.report, a);
+    s.useEmail === true ? sendEmail(s.email, s.report, o, s.useVoice, a) : null;
+    Logger.log('Text output: ' + o);
+
+    let end  = new Date();
+    let dur = (end - start) / 1000;
+    /*Logger*/log(ss, dur, s); 
+}
+
+function getSettingsFromSheet() {
+    Logger.log('Getting settings from sheet');
+    return {
+        apiKey: getSheetValue('apiKey'),
+        pmaxUrl: getSheetValue('pmaxUrl'),
+        report: getSheetValue('report'),
+        lang: getSheetValue('lang'),
+        useVoice: getSheetValue('useVoice'),
+        voice: getSheetValue('voice'),
+        folder: getSheetValue('folder'),
+        useEmail: getSheetValue('useEmail'),
+        email: getSheetValue('email'),
+        model: getSheetValue('model'),
+    };
+}
+
+function getDataForReport(report, pmaxUrl) {
+    Logger.log('Getting data for report: ' + report);
+    switch (report) {
+        case 'changeHistory':
+            return getDataFromSheet(pmaxUrl, 'changeData', 'B:L');
+        case 'placement':
+            return getDataFromSheet(pmaxUrl, 'place', 'A:S');
+        case 'searchCategories':
+            return getDataFromSheet(pmaxUrl, 'Categories', 'C4:J79');
+        case 'productMatrix':
+            return getDataFromSheet(pmaxUrl, 'Title', 'L2:T9');
+        case 'displayAds':
+            return getDataFromSheet(pmaxUrl, 'display', 'A:I');
+        case 'videoAds':
+            return getDataFromSheet(pmaxUrl, 'video', 'A:J');
+        case 'myData':
+            return getMyData();
+        default:
+            Logger.log('Invalid report name');
+            return null;
+    }
+}
+
+function getSheetValue(rangeName) {
+    sheet = SpreadsheetApp.openByUrl(SHEET_URL).getSheetByName('Settings').getRange(rangeName).getValue();
+    return sheet;
+}
+
+function getDataFromSheet(pmaxUrl, sheetName, range) {
+    const sheet = SpreadsheetApp.openByUrl(pmaxUrl).getSheetByName(sheetName);
+    const filteredData = sheet.getRange(range).getValues().filter(row => row.some(cell => !!cell));
+    const formattedData = filteredData.map(row => {
+        return row.map(cell => {
+            if (!isNaN(Number(cell))) {
+                return Number(cell).toFixed(2);
+            } else {
+                return cell;
+            }
+        }).join(',');
+    }).join('\n');
+    return formattedData;
+}
+
+function getMyData() {
+    const sheet = SpreadsheetApp.openByUrl(SHEET_URL).getSheetByName('myData');
+    // find the size of the data
+    const lastRow = sheet.getLastRow();
+    const lastColumn = sheet.getLastColumn();
+    // get the range of the data
+    const range = sheet.getRange(1, 1, lastRow, lastColumn);
+    // get the values of the data
+    const values = range.getValues();
+    // filter out the empty rows
+    const filteredData = values.filter(row => row.some(cell => !!cell));
+    // format the data
+    const formattedData = filteredData.map(row => {
+        return row.map(cell => {
+            if (!isNaN(Number(cell))) {
+                return Number(cell).toFixed(2);
+            } else {
+                return cell;
+            }
+        }).join(',');
+    }).join('\n');
+    return formattedData;
+}
+
+function log(ss, dur, s) {
+    let newRow = [new Date(), dur, s.report, s.lang, s.useVoice, s.voice, s.useEmail, s.model];
+    logUrl = ss.getRangeByName('u').getValue();
+    [SpreadsheetApp.openByUrl(logUrl), ss].map(s => s.getSheetByName('log')).forEach(sheet => sheet.appendRow(newRow));
+    Logger.log(`Script execution time: ${dur} seconds. Finished script.`);
+}
+
+function textToSpeechOpenAI(text, title, apiKey, voice, folder) {
+    Logger.log('Converting audio version of report');
+    const apiUrl = 'https://api.openai.com/v1/audio/speech'; // Endpoint for OpenAI TTS
+
+    const payload = JSON.stringify({
+        model: "tts-1",
+        voice: voice,
+        input: text
+    });
+
+    const options = {
+        method: 'post',
+        contentType: 'application/json',
+        payload: payload,
+        headers: {
+            'Authorization': 'Bearer ' + apiKey
+        },
+        muteHttpExceptions: true // To handle HTTP errors gracefully
+    };
+
+    // Make the API request
+    let response = UrlFetchApp.fetch(apiUrl, options);
+
+    // Log the Content-Type header
+    let contentType = response.getHeaders()['Content-Type'];
+
+    if (contentType.includes('audio/mpeg')) {
+        // Save the audio file to Google Drive 
+        let blob = response.getBlob();
+        let f = DriveApp.getFolderById(folder);
+        //create short time stamp for file name
+        let timeStamp = Utilities.formatDate(new Date(), "Australia/Sydney", "MMMdd_HHmm");
+
+        let fileInFolder = f.createFile(blob.setName(title + ' ' + timeStamp + ".mp3"));
+        let fileUrl = fileInFolder.getUrl();
+        Logger.log('Audio file saved in folder: ' + fileUrl);
+
+        return fileUrl;
+    } else {
+        // Handle unexpected content types
+        Logger.log('Unexpected content type: ' + contentType);
+    }
+}
+
+function generateTextOpenAI(prompt, data, apiKey, model) {
+    Logger.log('Generating report with OpenAI');
+    let url = 'https://api.openai.com/v1/chat/completions';
+    let messages = [
+        { "role": "user", "content": prompt }
+    ];
+    let payload = {
+        "model": model,
+        "messages": messages
+    };
+    let httpOptions = {
+        "method": "POST",
+        "muteHttpExceptions": true,
+        "contentType": "application/json",
+        "headers": {
+            "Authorization": 'Bearer ' + apiKey
+        },
+        'payload': JSON.stringify(payload)
+    };
+    let response = UrlFetchApp.fetch(url, httpOptions);
+    let startTime = Date.now();
+    while (response.getResponseCode() !== 200 && Date.now() - startTime < 30000) {
+        Utilities.sleep(5000);
+        response = UrlFetchApp.fetch(url, httpOptions);
+        Logger.log('Time elapsed: ' + (Date.now() - startTime) / 1000 + ' seconds');
+    }
+    if (response.getResponseCode() !== 200) {
+        Logger.log('Error: OpenAI API request timed out after 30 seconds. Please try again.');
+        return;
+    }
+    let responseJson = JSON.parse(response.getContentText());
+    let choices = responseJson.choices;
+    let text = choices[0].message.content;
+    return (text);
+}
+
+function outputToSheet(textOutput, report, audioUrl) {
+    const sheet = SpreadsheetApp.openByUrl(SHEET_URL).getSheetByName('Output');
+    const timestamp = new Date().toLocaleString();
+    const data = [[report, textOutput, audioUrl, timestamp]];
+    sheet.getRange('A2:E').clearContent();
+    sheet.getRange(2, 2, 1, 4).setValues(data);
+}
+
+function sendEmail(email, report, textOutput, useVoice, audioUrl) {
+    let subject = 'Insights Created';
+    let body = 'Hey<br>Your ' + report + ' insights are ready.<br>'
+    if (useVoice === true) {
+        let fileName = audioUrl.split('/').pop();
+        body += '<br>Audio file: <a href="' + audioUrl + '">' + fileName + '</a>';
+    }
+    body += '<br>Insights:<br>' + textOutput + '<br>Best,<br>Mike';
+
+    // Sending the email
+    try {
+        MailApp.sendEmail({
+            to: email,
+            subject: subject,
+            htmlBody: body
+        });
+        Logger.log('Email sent to: ' + email);
+    }
+    catch (e) {
+        Logger.log('Error sending email: ' + e);
+    }
+}
+
+function getPrompt(report, data, language) {
+    const prompts = {
+        changeHistory: `
+        Please analyze the provided change history data from my Google Ads account and tell me, 
+        at a high level, what's changed recently across campaigns. Highlight the number and types of changes 
+        (e.g., ad, budget, keyword), changes by user, and major changes by campaign. 
+        Use bullet points and clear summaries for easy understanding.
+      `,
+        placement: `
+        Analyze the placement data - these are placements spending >5c/day during the period analyzed.
+        Briefly describe key insights from the data, 
+        Make suggestions about potential exclusions that could be added.
+        Highlight any interesting themes you see in the data.
+        Mention which placement type was the worst performing and why.
+        Bear in mind the user can't action too much (as these are performance max campaigns).
+        But point out that they can use the google exclusion form 
+        Found here: https://support.google.com/google-ads/contact/pmax_implementation
+        To request exclusions be added to the account.
+        Present the information in a clear and actionable way, highlighting key trends and insights.
+      `,
+        searchCategories: `
+        Extract and analyze the provided category label data from the account's performance max campaigns. 
+        These are similar to 'search terms' but are aggregated into categories.
+        Ignore the row that has a label 'blank' as google doesn't provide data for every search category (they're aggregated into this blank row)
+        There's no need to creat nGrams, but do look for commanalities in the various 74 labels provided
+        Identify top-performing labels, (at least the top 3)
+        List at least the top 3 category labels for the user. Do not list all 74. Do NOT make up categories.
+        Consider mentioning underperforming ones. 
+        Are there any notably high AOV cateogry labels?
+        Or very high value per conversion category labels?
+        ONLY use the 'category labels' provided. DO NOT make up any categories
+        Bear in mind the user can't action too much (as these are performance max campaigns).
+        But point out that they can use the google exclusion form 
+        Found here: https://support.google.com/google-ads/contact/pmax_implementation
+        To request exclusions be added to the account.
+        Present the information in a clear and actionable way, highlighting key trends and insights.
+      `,
+        productMatrix: `
+        Use the product title and performance data 
+        The data shows the number of products, total cost, conversions, conv value - as well as ROAS, POAS & Profit
+        (POAS & Profit have been calculated using the COGS% in the user's 'Advanced' settings sheet.)
+        Identify top level insights (obviously the profitable & flukes buckets will have higher ROAS)
+        The costly & 'meh' buckets are those below the user's target ROAS.
+        (the user has set a threshold cost in their settings to differentiate between costly/profitable and flukes/meh)
+        There may also be a bucket for 'zero conv' (those spending but not converting during the period analyzed
+        & another for zombies, those getting some impressions but no clicks.
+        Present the findings in a clear and organized way.
+      `,
+        displayAds: `
+        Unfortunately the google ads API only gives filenames for the various display ads used 
+        in the user's performance max campaigns, not actual links to the images.
+        However, please do your best to find some insights in the provided display ad data. 
+        Identify the most effective creatives, based on the metrics you're given.
+        Summarize key insights and suggest potential areas for improvement to optimize display ad performance.
+      `,
+        videoAds: `
+        Analyze the provided video ad data - it shows the source, title, ID & various performance metrics (impor, clicsk, views, value, conv & cost)
+        Identify the most engaging and effective video ads using the titles
+        Summarize key insights and suggest potential areas for improvement to optimize video ad performance.
+        Remember you can (if you think it's needed) provide the links to the videos from the video IDs in the data
+        Use the format: "https://img.youtube.com/vi/" + video ID + "/maxresdefault.jpg"
+        You may want to comment on the 'source' of the videos. Eg if all videos are 'auto-generated' and
+        videos are costing money, it may be wise to point this out & suggest the user consider providing their own videos.
+      `,
+    };
+
+    const suffix = `
+    You're an expert at analyzing google ads data & providing actionable insights.
+    Give your analysis in a clear, concise, and actionable format 
+    Give all answers in the ${language} language.
+    Be consice and to the point.
+    Don't add any fluff - just the insights in ${language}.
+    `
+
+    return (suffix + prompts[report]) + data || null;
+}
+
+
+
+
+
+// Thanks for trying out the script.
+
+// To get updates about my scripts & training, drop your email here:
+// https://pmaxscript.ck.page/update
+
+
+// PS you're awesome!
