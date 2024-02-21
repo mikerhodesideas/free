@@ -18,14 +18,23 @@ Next, install the PMax Whisperer script & copy the **[template sheet here](https
 **PMax Sheet URL** - the URL of the sheet you created when you setup the latest version of my script (above)
 
 **OpenAI API Key** - don’t worry, you’ll struggle to spend $1/month, but you do need this. Get one [**here**](https://platform.openai.com/api-keys).
+
 **Report**  - choose the data you’d like to report on, there are 6 options. Have a play & see which you find more useful.
+
 **Language** - pick your language from the list (you can type yours over the top of the dropdown if it’s not there!)
+
 **Use Voice?** - do you want to generate an audio version of your chosen report, tick if you do
+
 **Voice** - choose the OpenAI voice you’d like to use. Click the [link](https://platform.openai.com/docs/guides/text-to-speech) to hear samples of each.
+
 **Google Drive Folder ID** - this is where your audio files are sent. Instructions **[here](https://www.notion.so/How-to-find-your-Google-Folder-ID-5d18d0574e244c73aa866c48bae5accd?pvs=21)**
+
 **Email Output?** - do you want results emailed, tick if you do
+
 **Email to** - enter the email address (just one) of the person you want the output sent to (it might not be possible to send it to yourself)
+
 **AI Model to use** - no need to change this, but if you want to save a few pennies, choose a GPT 3.5 model
+
 
 ### Next, install the script in your Google Ads account.
 
