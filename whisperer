@@ -7,7 +7,7 @@
 // Add your OpenAI API to the Settings - get one here: https://platform.openai.com/api-keys
 // Change the Settings on the sheet as desired & hit run, that's it!
 
-// Enter your URL here
+// Enter your URL here 
 const SHEET_URL = '';
 
 
