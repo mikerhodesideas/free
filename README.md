@@ -2,9 +2,10 @@
 
 **There are two key things you’ll need to use this Script/Sheet tool.**
 
-The Google Sheet created using the latest version of my PMax Script (currently v52) and,
-The PMax Whisperer script installed with all your settings completed in the Settings Tab.
-Get the script on this site!
+1. The Google Sheet created using the latest version of my PMax Script (currently v52) and,
+
+2. The PMax Whisperer script installed with all your settings completed in the Settings Tab (Get the script on this site!)
+
 
 ### **If you haven’t yet bought my PMax Script, head [here](https://www.notion.so/Updates-and-Latest-Versions-4fd1ed42c4084bbdb3776c4f35fa733c?pvs=21)**
 
@@ -36,6 +37,7 @@ Next, install the PMax Whisperer script & copy the **[template sheet here](https
 **AI Model to use** - no need to change this, but if you want to save a few pennies, choose a GPT 3.5 model
 
 
+
 ### Next, install the script in your Google Ads account.
 
 Put the URL of *your* PMax Whisperer sheet between the single quotes at the top (SHEET_URL = ‘’)
@@ -44,6 +46,7 @@ Hit ‘Preview’ to run the script & see the logs as they happen - or just hit 
 Once it’s working the way you want, schedule the script to run as often as you like (probably daily or weekly)
 Your chosen report will be added to the ‘Output’ tab (& emailed if you chose that option).
 The Audio version will be saved in the Google Folder you choose & a link shown in the logs & in the email & on the Output tab.
+
 
 ### **Get Updates, Make Feature Requests & Say Thanks!**
 
@@ -54,10 +57,12 @@ Please let me know if you’ve got an idea you think would help the majority of 
 
 And if you’ve read this far - thank you - and please, drop a quick comment onto LinkedIn. Algos & all that… it really helps more people find the tool.
 
+
 ### But what if you don’t have the PMax script? Can you still use the Whisperer?
 
 Yes!! I’ve added a new report option, so that even if you don’t have my latest PMax script, you’ll get value from the Whisperer script.
 Just paste the data you want to analyze into the tab ‘myData’, choose that report option in Settings & run the script in the normal way 🙂
+
 
 
 Thank you - you’re awesome!
