@@ -16,6 +16,7 @@ Next, install the PMax Whisperer script & copy the **[template sheet here](https
 ### **Let’s walk through the various settings you’ll need on your Sheet**
 
 **PMax Sheet URL** - the URL of the sheet you created when you setup the latest version of my script (above)
+
 **OpenAI API Key** - don’t worry, you’ll struggle to spend $1/month, but you do need this. Get one [**here**](https://platform.openai.com/api-keys).
 **Report**  - choose the data you’d like to report on, there are 6 options. Have a play & see which you find more useful.
 **Language** - pick your language from the list (you can type yours over the top of the dropdown if it’s not there!)
