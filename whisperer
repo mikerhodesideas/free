@@ -300,6 +300,9 @@ function getPrompt(report, data, language) {
         You may want to comment on the 'source' of the videos. Eg if all videos are 'auto-generated' and
         videos are costing money, it may be wise to point this out & suggest the user consider providing their own videos.
       `,
+      myData: `
+      Analyze this data and provide insights.
+      `
     };
 
     const suffix = `
