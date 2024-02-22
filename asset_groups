@@ -1,0 +1,47 @@
+// (c) MikeRhodes.com.au 2024
+
+// Create a new sheet & paste the URL below
+// Set the number of days to pull data for
+
+const SHEET_URL = '';   // Paste the URL of the Google Sheet here
+const NUM_DAYS  = 30;   // Choose how many days data you want
+
+
+function main() {
+    const spreadsheet = SpreadsheetApp.openByUrl(SHEET_URL);
+    const dateRange   = getDateRange(NUM_DAYS);
+    const queries     = {
+        asset_groups: `
+        SELECT 
+            segments.date,
+            campaign.name, 
+            asset_group.name, 
+            metrics.impressions, 
+            metrics.clicks, 
+            metrics.cost_micros, 
+            metrics.conversions, 
+            metrics.conversions_value,
+            asset_group.primary_status 
+        FROM asset_group 
+        WHERE segments.date BETWEEN ${dateRange}
+    `
+    };
+
+    for (const [tabName, query] of Object.entries(queries)) {
+        let sheet = spreadsheet.getSheetByName(tabName);
+        if (!sheet) {
+            sheet = spreadsheet.insertSheet(tabName);
+        }
+
+        const report = AdsApp.report(query, { 'apiVersion': 'v16' });
+        report.exportToSheet(sheet);
+    }
+}
+
+function getDateRange(numDays) {
+    const endDate   = new Date();
+    const startDate = new Date();
+    startDate.setDate(endDate.getDate() - numDays);
+    const format = date => Utilities.formatDate(date, AdsApp.currentAccount().getTimeZone(), 'yyyyMMdd');
+    return `${format(startDate)} AND ${format(endDate)}`;
+}
