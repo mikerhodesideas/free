@@ -1,0 +1,150 @@
+// First make a copy of this template sheet: 
+// https://docs.google.com/spreadsheets/d/1eLx4WmhNBKYF_XyYjKJy2IuXkRIHVAmYY6eot3IDL5M/copy
+// then paste the url of YOUR sheet in the SHEET_URL variable below
+
+const SHEET_URL  = ''; // Paste your sheet URL here (if you delete the edit#gid=123 just be sure to keep the trailing slash)
+const NUM_DAYS   = 7;  // Choose how many days data you want
+const MIN_CLICKS = 30; // Choose the minimum number of clicks for a search category to be included in the report
+
+
+
+
+
+
+// more detail about the data:
+
+// there can be a LOT of terms, so start with a small date range and a high minimum clicks value
+// each term can belong to multiple categories, so the same term can appear multiple times in the report
+// please don't yell at me, yell at google
+// please let me know if you come up with great ways to visualize this data, I'd love to see it!
+
+
+
+
+
+   
+// please don't change any code below this line ---------------------------------------------------------
+
+
+
+
+
+
+function main() {
+
+    Logger.log('Starting script to get search term insights for performance max campaigns...');
+
+    const ss = SpreadsheetApp.openByUrl(SHEET_URL);
+    const dateRange = getDateRange(NUM_DAYS);
+    let start = new Date();
+
+    let allCats = [['Campaign Name', 'Campaign ID', 'Category Label', 'Category ID', 'Clicks', 'Impr', 'Conv', 'Value']]; // Initialize with headers
+    let allTerms = [['Campaign Name', 'Campaign ID', 'Category Label', 'Search Term', 'Clicks', 'Impr', 'Conv', 'Value']]; // Initialize with headers
+
+    // first find all relevant pmax campaign IDs
+    let campaigns = AdsApp.report(`
+    SELECT 
+        campaign.id, campaign.name, 
+        metrics.clicks, metrics.impressions, metrics.conversions, metrics.conversions_value
+    FROM campaign 
+    WHERE campaign.status != 'REMOVED' 
+        AND campaign.advertising_channel_type = "PERFORMANCE_MAX" 
+        AND metrics.impressions > 0 
+        AND segments.date BETWEEN ${dateRange}
+    `)
+        .rows();
+
+    while (campaigns.hasNext()) {
+        let campaign = campaigns.next();
+
+        // fetch relevant search category IDs for each campaign
+        let searchTermInsightsIdsQuery = AdsApp.report(`
+        SELECT 
+            campaign.name, campaign.id, campaign_search_term_insight.category_label, campaign_search_term_insight.id,
+            metrics.clicks, metrics.impressions, metrics.conversions, metrics.conversions_value
+        FROM campaign_search_term_insight 
+        WHERE segments.date BETWEEN ${dateRange}
+            AND campaign_search_term_insight.campaign_id = ${campaign['campaign.id']}
+            AND metrics.clicks >= ${MIN_CLICKS}
+        `)
+            .rows();
+
+        // add each search category to allCats
+        while (searchTermInsightsIdsQuery.hasNext()) {
+            let insight = searchTermInsightsIdsQuery.next();
+            allCats.push([
+                campaign['campaign.name'],
+                campaign['campaign.id'],
+                insight['campaign_search_term_insight.category_label'],
+                insight['campaign_search_term_insight.id'],
+                insight['metrics.clicks'],
+                insight['metrics.impressions'],
+                insight['metrics.conversions'].toFixed(1),
+                insight['metrics.conversions_value'].toFixed(2)
+            ]);
+
+
+            // for relevant search category IDs, fetch the search 'term'
+            let searchTermQuery = AdsApp.report(`
+            SELECT 
+                segments.search_subcategory, segments.search_term, campaign_search_term_insight.id, 
+                metrics.clicks, metrics.impressions, metrics.conversions, metrics.conversions_value
+            FROM campaign_search_term_insight 
+            WHERE segments.date BETWEEN ${dateRange}
+                AND campaign_search_term_insight.campaign_id = ${campaign['campaign.id']}
+                AND campaign_search_term_insight.id = "${insight['campaign_search_term_insight.id']}"
+            `)
+                .rows();
+
+            while (searchTermQuery.hasNext()) {
+                let term = searchTermQuery.next();
+                if (term['metrics.clicks'] > 0) {
+                    allTerms.push([
+                        campaign['campaign.name'],
+                        campaign['campaign.id'],
+                        insight['campaign_search_term_insight.category_label'],
+                        term['segments.search_term'],
+                        term['metrics.clicks'],
+                        term['metrics.impressions'],
+                        term['metrics.conversions'].toFixed(1),
+                        term['metrics.conversions_value'].toFixed(2)
+                    ]);
+                }
+            }
+        }
+    } // end of campaigns loop
+
+    let categoriesSheet = ss.getSheetByName('categories') ? ss.getSheetByName('categories').clear() : ss.insertSheet('categories');
+    if (allCats.length > 1) { // Check if there's more than just the header row
+        categoriesSheet.getRange(1, 1, allCats.length, allCats[0].length).setValues(allCats);
+    }
+
+    let termsSheet = ss.getSheetByName('terms') ? ss.getSheetByName('terms').clear() : ss.insertSheet('terms');
+    if (allTerms.length > 1) { // Check if there's more than just the header row
+        termsSheet.getRange(1, 1, allTerms.length, allTerms[0].length).setValues(allTerms);
+    }
+
+    // tidy up sheets. bold & freeze first row. 
+    // in a perfect world this would set column widths to fit content & remove empty columns, but you're more than capable ;)
+    [termsSheet, categoriesSheet].forEach(sheet => {
+        sheet.getRange(1, 1, 1, sheet.getLastColumn()).setFontWeight('bold');
+        sheet.setFrozenRows(1);
+    });
+
+    let end  = new Date();
+    let dur = (end - start) / 1000;
+    Logger.log(`Script finished in ${dur} seconds`);
+}
+
+// function to get date range
+function getDateRange(numDays) {
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(endDate.getDate() - numDays);
+    const format = date => Utilities.formatDate(date, AdsApp.currentAccount().getTimeZone(), 'yyyyMMdd');
+    return `${format(startDate)} AND ${format(endDate)}`;
+}
+
+
+
+// PS you're awesome!
