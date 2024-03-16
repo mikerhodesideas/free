@@ -52,8 +52,13 @@ function main() {
         AND metrics.impressions > 0 
         AND segments.date BETWEEN ${dateRange}
     `)
-        .rows();
+    .rows();
 
+    if (campaigns.totalNumEntities() == 0) {
+        Logger.log('No performance max campaigns found for the given date range.');
+        return;
+    }
+    
     while (campaigns.hasNext()) {
         let campaign = campaigns.next();
 
@@ -67,68 +72,85 @@ function main() {
             AND campaign_search_term_insight.campaign_id = ${campaign['campaign.id']}
             AND metrics.clicks >= ${MIN_CLICKS}
         `)
-            .rows();
+        .rows();
 
         // add each search category to allCats
         while (searchTermInsightsIdsQuery.hasNext()) {
-            let insight = searchTermInsightsIdsQuery.next();
-            allCats.push([
-                campaign['campaign.name'],
-                campaign['campaign.id'],
-                insight['campaign_search_term_insight.category_label'],
-                insight['campaign_search_term_insight.id'],
-                insight['metrics.clicks'],
-                insight['metrics.impressions'],
-                insight['metrics.conversions'].toFixed(1),
-                insight['metrics.conversions_value'].toFixed(2)
-            ]);
+            try {
+                let insight = searchTermInsightsIdsQuery.next();
+                allCats.push([
+                    campaign['campaign.name'],
+                    campaign['campaign.id'],
+                    insight['campaign_search_term_insight.category_label'],
+                    insight['campaign_search_term_insight.id'],
+                    insight['metrics.clicks'],
+                    insight['metrics.impressions'],
+                    insight['metrics.conversions'].toFixed(1),
+                    insight['metrics.conversions_value'].toFixed(2)
+                ]);
 
-
-            // for relevant search category IDs, fetch the search 'term'
-            let searchTermQuery = AdsApp.report(`
-            SELECT 
-                segments.search_subcategory, segments.search_term, campaign_search_term_insight.id, 
-                metrics.clicks, metrics.impressions, metrics.conversions, metrics.conversions_value
-            FROM campaign_search_term_insight 
-            WHERE segments.date BETWEEN ${dateRange}
-                AND campaign_search_term_insight.campaign_id = ${campaign['campaign.id']}
-                AND campaign_search_term_insight.id = "${insight['campaign_search_term_insight.id']}"
-            `)
+                // for relevant search category IDs, fetch the search 'term'
+                let searchTermQuery = AdsApp.report(`
+                SELECT 
+                    segments.search_subcategory, segments.search_term, campaign_search_term_insight.id, 
+                    metrics.clicks, metrics.impressions, metrics.conversions, metrics.conversions_value
+                FROM campaign_search_term_insight 
+                WHERE segments.date BETWEEN ${dateRange}
+                    AND campaign_search_term_insight.campaign_id = ${campaign['campaign.id']}
+                    AND campaign_search_term_insight.id = "${insight['campaign_search_term_insight.id']}"
+                `)
                 .rows();
 
-            while (searchTermQuery.hasNext()) {
-                let term = searchTermQuery.next();
-                if (term['metrics.clicks'] > 0) {
-                    allTerms.push([
-                        campaign['campaign.name'],
-                        campaign['campaign.id'],
-                        insight['campaign_search_term_insight.category_label'],
-                        term['segments.search_term'],
-                        term['metrics.clicks'],
-                        term['metrics.impressions'],
-                        term['metrics.conversions'].toFixed(1),
-                        term['metrics.conversions_value'].toFixed(2)
-                    ]);
-                }
-            }
-        }
-    } // end of campaigns loop
+                while (searchTermQuery.hasNext()) {
+                    try {
+                        let term = searchTermQuery.next();
+                        if (term['metrics.clicks'] > 0) {
+                            allTerms.push([
+                                campaign['campaign.name'],
+                                campaign['campaign.id'],
+                                insight['campaign_search_term_insight.category_label'],
+                                term['segments.search_term'],
+                                term['metrics.clicks'],
+                                term['metrics.impressions'],
+                                term['metrics.conversions'].toFixed(1),
+                                term['metrics.conversions_value'].toFixed(2)
+                            ]);
+                        } 
+                    } catch (error) {
+                        Logger.log('Error adding search term to allTerms: ' + error);
+                    }
+                } // end of searchTermQuery while loop
 
-    let categoriesSheet = ss.getSheetByName('categories') ? ss.getSheetByName('categories').clear() : ss.insertSheet('categories');
+            } catch (error) {
+                Logger.log('Error adding search term to allTerms: ' + error);
+            }
+        } // end of searchTermInsightsIdsQuery while loop
+    } // end of campaigns while loop
+
+    let termsSheet;
+    let categoriesSheet;
+
     if (allCats.length > 1) { // Check if there's more than just the header row
+        let categoriesSheet = ss.getSheetByName('categories') ? ss.getSheetByName('categories').clear() : ss.insertSheet('categories');
         categoriesSheet.getRange(1, 1, allCats.length, allCats[0].length).setValues(allCats);
+    } else {
+        Logger.log('No data found for categories');
     }
 
-    let termsSheet = ss.getSheetByName('terms') ? ss.getSheetByName('terms').clear() : ss.insertSheet('terms');
     if (allTerms.length > 1) { // Check if there's more than just the header row
+        let termsSheet = ss.getSheetByName('terms') ? ss.getSheetByName('terms').clear() : ss.insertSheet('terms');
         termsSheet.getRange(1, 1, allTerms.length, allTerms[0].length).setValues(allTerms);
+    } else {
+        Logger.log('No data found for terms');
     }
 
     // tidy up sheets. bold & freeze first row. 
     // in a perfect world this would set column widths to fit content & remove empty columns, but you're more than capable ;)
     [termsSheet, categoriesSheet].forEach(sheet => {
-        sheet.getRange(1, 1, 1, sheet.getLastColumn()).setFontWeight('bold');
-        sheet.setFrozenRows(1);
+        if (sheet && sheet.getMaxRows() > 0 && sheet.getMaxColumns() > 0) {
+            sheet.getRange(1, 1, 1, sheet.getLastColumn()).setFontWeight('bold');
+            sheet.setFrozenRows(1);
+        }
     });
 
     let end  = new Date();
