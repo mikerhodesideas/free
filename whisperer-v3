@@ -1,14 +1,14 @@
-// First, copy the template sheet here: https://docs.google.com/spreadsheets/d/17Ad4Ty8ubx9kZHsEDRmsGwkK4i04g1wm7JVlpL3YYR0/copy
+// PMax Whisperer v3
+// (c) MikeRhodes.com.au
+
+// First, copy the v3 template sheet here: https://docs.google.com/spreadsheets/d/17Ad4Ty8ubx9kZHsEDRmsGwkK4i04g1wm7JVlpL3YYR0/copy
 // Then, paste your sheet URL below between the single quotes
 
+// Add your OpenAI API to the Settings - get one here: https://platform.openai.com/api-keys
+// Change the Settings on the sheet as desired & hit run, that's it!
 
+// Enter your URL here
 const SHEET_URL = '';
-
-
-// PMax Whisperer v3    (c) MikeRhodes.com.au
-// You'll need to add your OpenAI API Key to the Settings tab - get one here: https://platform.openai.com/api-keys
-// Then change the Settings on the sheet as desired & hit run, that's it!
-
 
 
 
@@ -196,7 +196,7 @@ function textToSpeechOpenAI(text, title, apiKey, voice, folder) {
     if (contentType.includes('audio/mpeg')) {
         try {
             // Attempt to access the folder by ID
-            let f = DriveApp.getFolderById(folderId);
+            let f = DriveApp.getFolderById(folder);
 
             // If successful, proceed with saving the file
             let blob = response.getBlob();
@@ -209,7 +209,7 @@ function textToSpeechOpenAI(text, title, apiKey, voice, folder) {
             return fileUrl;
         } catch (e) {
             // Handle the case where the folder does not exist
-            Logger.log('Folder does not exist or access denied. Folder ID: ' + folderId);
+            Logger.log('Folder does not exist or access denied. Folder ID: ' + folder);
             return null; 
         }
     } else {
@@ -265,7 +265,7 @@ function outputToSheet(o, r, audioUrl) {
 function sendEmail(e, r, o, useVoice, audioUrl) {
     let subject = 'Insights Created using the PMax Whisperer Script';
     let body = 'Hey<br>Your ' + r + ' insights are ready.<br>'
-    if (useVoice === true) {
+    if (useVoice === true && audioUrl) {
         let fileName = audioUrl.split('/').pop();
         body += '<br>Audio file: <a href="' + audioUrl + '">' + fileName + '</a>';
     }
@@ -314,12 +314,10 @@ function getPrompt(r, d, l, s, w) {
 
 
 
-// Thanks for trying out the pmax whisperer script.
-// read the wiki for this script here: https://mikerhodes.notion.site/How-to-use-the-PMax-Whisperer-Script-Sheet-4ebcf31a249a49e2a651e46c4e15c0d5
+// Thanks for trying out the script.
 
-
-// PS To get updates about my scripts & training, drop me your email here:
+// To get updates about my scripts & training, drop me your email here:
 // https://pmaxscript.ck.page/update
 
 
-// PPS you're awesome!
+// PS you're awesome!
