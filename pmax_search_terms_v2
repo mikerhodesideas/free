@@ -21,7 +21,8 @@ const MIN_CLICKS = 30; // Choose the minimum number of clicks for a search categ
 // Use this form to request negatives from google
 // https://support.google.com/google-ads/contact/pmax_implementation
 
-
+// watch the Paid Media Pros video to see how to use this script
+// https://www.youtube.com/watch?v=cN_4v3NefvM
 
    
 // please don't change any code below this line ---------------------------------------------------------
