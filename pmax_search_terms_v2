@@ -18,7 +18,8 @@ const MIN_CLICKS = 30; // Choose the minimum number of clicks for a search categ
 // please don't yell at me, yell at google
 // please let me know if you come up with great ways to visualize this data, I'd love to see it!
 
-
+// Use this form to request negatives from google
+// https://support.google.com/google-ads/contact/pmax_implementation
 
 
 
