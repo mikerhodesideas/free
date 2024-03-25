@@ -2,9 +2,33 @@
 // https://docs.google.com/spreadsheets/d/1eLx4WmhNBKYF_XyYjKJy2IuXkRIHVAmYY6eot3IDL5M/copy
 // then paste the url of YOUR sheet in the SHEET_URL variable below
 
-const SHEET_URL = '';
-const NUM_DAYS = 7;    // Choose how many days data you want
+const SHEET_URL  = ''; // Paste your sheet URL here (if you delete the edit#gid=123 just be sure to keep the trailing slash)
+const NUM_DAYS   = 7;  // Choose how many days data you want
 const MIN_CLICKS = 30; // Choose the minimum number of clicks for a search category to be included in the report
+
+
+
+
+
+
+// more detail about the data:
+
+// there can be a LOT of terms, so start with a small date range and a high minimum clicks value
+// each term can belong to multiple categories, so the same term can appear multiple times in the report
+// please don't yell at me, yell at google
+// please let me know if you come up with great ways to visualize this data, I'd love to see it!
+
+// Use this form to request negatives from google
+// https://support.google.com/google-ads/contact/pmax_implementation
+
+// watch the Paid Media Pros video to see how to use this script
+// https://www.youtube.com/watch?v=cN_4v3NefvM
+
+
+
+
+
+// please don't change any code below this line ---------------------------------------------------------
 
 
 
