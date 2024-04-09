@@ -1,0 +1,152 @@
+const SHEET_URL  = '';
+const NUM_DAYS   = 30; // specify the number of past days
+
+// ---------------------------------------------------------------------------------
+
+const COST_LIMIT = NUM_DAYS / 100;  // Assume must spend at least 1c/day (not currently used)
+const IMPR_LIMIT = NUM_DAYS * 100; // Assume must get at least 100 impr/day (not currently used)
+
+
+function main() {
+    console.log('Script execution started.');
+
+    let startDate = new Date();
+    let ss        = SpreadsheetApp.openByUrl(SHEET_URL);
+    let dateRange = getDateRange(NUM_DAYS);
+
+    let query = `
+    SELECT 
+        detail_placement_view.group_placement_target_url,
+        detail_placement_view.placement_type, 
+        metrics.impressions, 
+        metrics.interactions, 
+        metrics.video_views, 
+        metrics.cost_micros, 
+        metrics.conversions,
+        metrics.conversions_value,
+        metrics.all_conversions,
+        metrics.all_conversions_value
+    FROM 
+        detail_placement_view
+    WHERE 
+        segments.date BETWEEN ${dateRange}
+
+    ` ; 
+
+    let report  = AdsApp.report(query);
+    let rows    = report.rows();
+    let aggData = aggMet(rows);
+  
+    outputDataToSheet(ss, aggData, COST_LIMIT, IMPR_LIMIT);
+
+    let endDate  = new Date();
+    // calc duration in seconds
+    let duration = (endDate - startDate) / 1000;
+    console.log(`Script execution time: ${duration} seconds.`);
+}
+
+// ---------------------------------------------------------------------------------
+
+function getDateRange(numDays) {
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(endDate.getDate() - numDays);
+
+    const format = date => Utilities.formatDate(date, AdsApp.currentAccount().getTimeZone(), 'yyyyMMdd');
+    return `${format(startDate)} AND ${format(endDate)}`;
+}
+
+function outputDataToSheet(ss, data, costLimit, imprLimit) {
+    let sheet = ss.getSheetByName('Sheet1');
+    if (!sheet) {
+        console.log('Sheet not found.');
+        return;
+    }
+
+    // Create headers
+    let headers = [
+        'Placement Type', 'Placement', 'Impr', 'Interact', 'Views', 'Cost', 'Conv', 'Value',
+        'All Conv', 'All Value', 'Int Rate', 'View Rate', 'CVR', 'ROAS', 'CPA', 'CPI',
+        'All CVR', 'All CPA', 'All CPI'
+    ];
+
+    // clear the sheet
+    sheet.clearContents();
+
+    // Convert the aggregated object into an array of rows and filter in one step
+    let rows = [];
+    for (let placement in data) {
+        let item = data[placement];
+        //if (item.cost >= costLimit && item.impr >= imprLimit && placement !== 'undefined' && placement) {
+        if (placement) {
+            rows.push([
+                item.placementType, placement, item.impr, item.interact,
+                item.views, item.cost, item.conv, item.value,
+                item.allConv, item.allValue, item.intRate, item.viewRate,
+                item.cvr, item.roas, item.cpa, item.cpi,
+                item.allCvr, item.allCpa, item.allCpi
+            ]);
+        }
+    }
+
+    // add the header to the filtered data
+    rows.unshift(headers);
+
+
+    // Write the filtered data to the sheet starting from the second row
+    if (rows.length > 0) {
+        sheet.getRange(1, 1, rows.length, rows[0].length).setValues(rows);
+    }
+}
+
+function aggMet(rows) {
+    return Array.from(rows).reduce((acc, row) => {
+        let placement     = row['detail_placement_view.group_placement_target_url'];
+        let placementType = row['detail_placement_view.placement_type'];
+        let impr          = parseInt(row['metrics.impressions'], 10)         || 0;
+        let interact      = parseInt(row['metrics.interactions'], 10)        || 0;
+        let views         = parseInt(row['metrics.video_views'], 10)         || 0;
+        let cost          = parseInt(row['metrics.cost_micros'], 10) / 1e6   || 0;
+        let conv          = parseInt(row['metrics.conversions'], 10)         || 0;
+        let value         = parseFloat(row['metrics.conversions_value'])     || 0;
+        let allConv       = parseInt(row['metrics.all_conversions'], 10)     || 0;
+        let allValue      = parseFloat(row['metrics.all_conversions_value']) || 0;
+     
+        if (!acc[placement]) {
+            acc[placement] = { 
+                placementType, impr, interact, views, cost, conv, value, allConv, allValue,
+                intRate:  impr > 0     ? interact / impr : 0,
+                viewRate: impr > 0     ? views / impr : 0,
+                cvr:      interact > 0 ? conv / interact : 0,
+                roas:     cost > 0     ? value / cost : 0,
+                cpa:      conv > 0     ? cost / conv : 0,
+                cpi:      impr > 0     ? (conv / impr) * 1000 : 0,
+                allCvr:   interact > 0 ? allConv / interact : 0,
+                allCpa:   allConv > 0  ? cost / allConv : 0,
+                allCpi:   impr > 0     ? (allConv / impr) * 1000 : 0
+            };
+        } else {
+            acc[placement].impr     += impr;
+            acc[placement].interact += interact;
+            acc[placement].views    += views;
+            acc[placement].cost     += cost;
+            acc[placement].conv     += conv;
+            acc[placement].value    += value;
+            acc[placement].allConv  += allConv;
+            acc[placement].allValue += allValue;
+
+            // calculate additional metrics
+            acc[placement].intRate  = impr > 0 ? interact / impr : 0;
+            acc[placement].viewRate = impr > 0 ? views / impr : 0;
+            acc[placement].cvr       = interact > 0 ? conv / interact : 0;
+            acc[placement].roas      = cost > 0 ? value / cost : 0;
+            acc[placement].cpa       = conv > 0 ? cost / conv : 0;
+            acc[placement].cpi       = impr > 0 ? (conv / impr) * 1000 : 0;
+            acc[placement].allCvr    = interact > 0 ? allConv / interact : 0;
+            acc[placement].allCpa    = allConv > 0 ? cost / allConv : 0;
+            acc[placement].allCpi    = impr > 0 ? (allConv / impr) * 1000 : 0;
+        }
+
+        return acc;
+    }, {});
+}
