@@ -9,12 +9,14 @@
 
 ### **If you haven’t yet bought my PMax Script, head to [PMaxScript.com](https://mikerhodesidea.wpenginepowered.com/)**
 
-### [or head straight to the checkout page](https://mikerhodes.circle.so/checkout/latest-script)
+[or head straight to the checkout page](https://mikerhodes.circle.so/checkout/latest-script)
 
 Follow the instructions, get it all setup, then come back here.
 The benefit being you can use AI to get insights on data for YOUR account once your pmax sheet is setup.
 
 Next, install the PMax Whisperer script & copy the **[v7 template sheet here](https://docs.google.com/spreadsheets/d/1SLEu4Gj3x5UfcyIgWGcqQerV7ej9u38GHifSUZh4wrI/copy).**
+
+
 
 ### **Let’s walk through the various settings you’ll need on your Sheet**
 
