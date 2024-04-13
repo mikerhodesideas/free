@@ -1,0 +1,425 @@
+// PMax Whisperer v7 - multi report creation, nGram report and anthropic/claude3 support added
+// (c) MikeRhodes.com.au
+
+// Enter your google sheet URL here (ie YOUR copy of the whisperer sheet template)
+const SHEET_URL = '';
+
+
+// First, copy the v7 template sheet here: https://docs.google.com/spreadsheets/d/1SLEu4Gj3x5UfcyIgWGcqQerV7ej9u38GHifSUZh4wrI/copy
+// Paste your sheet URL below between the single quotes above (line 5)
+//
+// then...
+//
+// Add your API Key or Keys to the Settings tab (links to find out how to get these from OpenAI & Anthropic are on that tab)
+// Change the rest of the settings on the sheet & the reports you want & hit preview, that's it!
+// Once it's working schedule your script to run daily (or whatever timeframe you prefer - hourly could get costly & doesn't add much value!)
+
+
+
+// don't change the code below this line. pretty please. -------------------------------------------------------
+
+
+
+function main() {
+    try {
+        let ss = SpreadsheetApp.openByUrl(SHEET_URL);
+        let start = new Date();
+        let settings = getSettingsFromSheet();
+        console.log(Object.keys(settings)
+            .filter(key => !key.startsWith('p_') && !key.startsWith('r_') && !key.includes('api'))
+            .map(key => `${key}: ${settings[key]}`)
+            .join(', '));
+        let reportsToGenerate = getReportsToGenerate(settings);
+        
+        // Initialize model and headers only once
+        const { endpoint, headers, model } = initializeModel(settings);
+
+        for (let report of reportsToGenerate) {
+            let startLoop = new Date();
+            let data = getDataForReport(report, settings.pmaxUrl);
+            let prompt = getPrompt(report, data, settings.lang, settings, settings.whoFor);
+            let output = fetchModelData(prompt, endpoint, headers, model);
+            let audio = settings.useVoice ? textToSpeechOpenAI(output, report, settings.apiKey, settings.voice, settings.folder) : null;
+            outputToSheet(output, report, audio);
+            if (settings.useEmail) {
+                sendEmail(settings.email, report, output, settings.useVoice, audio);
+            }
+            log(ss, (new Date() - startLoop) / 1000, settings);
+        }
+        console.log('Finished Script. Total duration: ' + (new Date() - start) / 1000 + ' seconds');
+    } catch (error) {
+        console.error('An error occurred: ' + error.toString());
+    }
+}
+
+// ------
+
+function initializeModel(settings) {
+    Logger.log('Initializing model...');
+    let endpoint, headers, model;
+    if (settings.llm === 'openai') {
+        endpoint = 'https://api.openai.com/v1/chat/completions';
+        headers = { "Authorization": `Bearer ${settings.apiKey}`, "Content-Type": "application/json" };
+        model = settings.model === 'better' ? 'gpt-4-turbo-preview' : 'gpt-3.5-turbo';
+    } else if (settings.llm === 'anthropic') {
+        endpoint = 'https://api.anthropic.com/v1/messages';
+        headers = { "x-api-key": settings.anth_apikey, "Content-Type": "application/json", "anthropic-version": "2023-06-01" };
+        model = settings.model === 'better' ? 'claude-3-opus-20240229' : 'claude-3-sonnet-20240229';
+    } else {
+        console.error('Invalid model indicator. Please choose between "openai" and "anthropic".');
+        throw new Error('Error: Invalid model indicator provided.');
+    }
+    return { endpoint, headers, model };
+}
+
+function fetchModelData(prompt, endpoint, headers, model) {
+    if (prompt === "No data available for this report.") {
+        return prompt;
+    }
+    // Setup payload based on the model and prompt
+    const payload = {
+        model: model,
+        messages: [{ "role": "user", "content": prompt }],
+        ...(model.includes('claude') && { "max_tokens": 1000 })  // Example of conditionally adding properties
+    };
+    return genericAPICall(endpoint, headers, payload);
+}
+
+function genericAPICall(endpoint, headers, payload) {
+    Logger.log('Making API call...');
+    let httpOptions = {
+        "method": "POST",
+        "muteHttpExceptions": true,
+        "headers": headers,
+        "payload": JSON.stringify(payload)
+    };
+
+    let attempts = 0;
+    let response;
+    do {
+        response = UrlFetchApp.fetch(endpoint, httpOptions);
+        if (response.getResponseCode() === 200) {
+            break;
+        }
+        Utilities.sleep(2000 * attempts); // Exponential backoff
+        attempts++;
+    } while (attempts < 3);
+    let responseCode = response.getResponseCode();
+    let responseContent = response.getContentText();
+
+    if (responseCode !== 200) {
+        Logger.log(`API request failed with status ${responseCode}`);
+        try {
+            let errorResponse = JSON.parse(responseContent);
+            Logger.log(`Error details: ${errorResponse.error}`);
+            return `Error: ${errorResponse.error.message}`;
+        } catch (e) {
+            Logger.log('Error parsing API error response.');
+            return 'Error: Failed to parse the API error response.';
+        }
+    }
+
+    let responseJson = JSON.parse(response.getContentText());
+    if (endpoint.includes('openai.com')) {
+        return responseJson.choices[0].message.content;  // Adjust depending on the response structure
+    } else if (endpoint.includes('anthropic.com')) {
+        return responseJson.content[0].text;            // Adjust depending on the response structure
+    }
+}
+
+function outputToSheet(o, r, audioUrl) {
+    const sheet = SpreadsheetApp.openByUrl(SHEET_URL).getSheetByName('Output');
+    const timestamp = new Date().toLocaleString();
+    const data = [[r, o, audioUrl, timestamp]];
+    sheet.insertRowBefore(2); // Insert a new row at position 2
+    sheet.getRange(2, 1, 1, 4).setValues(data); // Insert the new data at the new row 2
+}
+
+function getReportsToGenerate(s) {
+    let reports = [];
+    if (s['r_productTitles'] === true) reports.push('productTitles');
+    if (s['r_changeHistory'] === true) reports.push('changeHistory');
+    if (s['r_placement'] === true) reports.push('placement');
+    if (s['r_searchCategories'] === true) reports.push('searchCategories');
+    if (s['r_productMatrix'] === true) reports.push('productMatrix');
+    if (s['r_nGrams'] === true) reports.push('nGrams');
+    if (s['r_displayAds'] === true) reports.push('displayAds');
+    if (s['r_videoAds'] === true) reports.push('videoAds');
+    if (s['r_myData'] === true) reports.push('myData');
+    return reports;
+}
+
+function getSettingsFromSheet() {
+    Logger.log('Getting settings from sheet');
+    return {
+        llm: getSheetValue('llm'),
+        model: getSheetValue('model'),
+        apiKey: getSheetValue('apiKey'),
+        anth_apikey: getSheetValue('anth_apikey'),
+        pmaxUrl: getSheetValue('pmaxUrl'),
+        lang: getSheetValue('lang'),
+        whoFor: getSheetValue('whoFor'),
+        useVoice: getSheetValue('useVoice'),
+        voice: getSheetValue('voice'),
+        folder: getSheetValue('folder'),
+        useEmail: getSheetValue('useEmail'),
+        email: getSheetValue('email'),
+        
+        // get prompts from sheet (v3) for productTitles
+        p_productTitles: getSheetValue('p_productTitles'),
+        p_changeHistory: getSheetValue('p_changeHistory'),
+        p_placement: getSheetValue('p_placement'),
+        p_searchCategories: getSheetValue('p_searchCategories'),
+        p_productMatrix: getSheetValue('p_productMatrix'),
+        p_nGrams: getSheetValue('p_nGrams'),
+        p_displayAds: getSheetValue('p_displayAds'),
+        p_videoAds: getSheetValue('p_videoAds'),
+        p_myData: getSheetValue('p_myData'),
+        p_internal: getSheetValue('p_internal'),
+        p_client: getSheetValue('p_client'),
+        // v5 multi reports
+        r_productTitles: getSheetValue('r_productTitles'),
+        r_changeHistory: getSheetValue('r_changeHistory'),
+        r_placement: getSheetValue('r_placement'),
+        r_searchCategories: getSheetValue('r_searchCategories'),
+        r_productMatrix: getSheetValue('r_productMatrix'),
+        r_nGrams: getSheetValue('r_nGrams'),
+        r_displayAds: getSheetValue('r_displayAds'),
+        r_videoAds: getSheetValue('r_videoAds'),
+        r_myData: getSheetValue('r_myData'),
+    };
+}
+
+function getDataForReport(r, u) {
+    Logger.log('Getting data for report: ' + r);
+    // pass to cleanData the column to sort by
+    switch (r) {
+        case 'productTitles':
+            return getDataFromSheet(u, 'productTitles', 'A:B200', 0);
+        case 'changeHistory':
+            return getDataFromSheet(u, 'changeData', 'B:L', -1);
+        case 'placement':
+            return getDataFromSheet(u, 'place', 'A:J', 5);
+        case 'searchCategories':
+            return getDataFromSheet(u, 'Categories', 'C4:J79', 0);
+        case 'productMatrix':
+            return getDataFromSheet(u, 'Title', 'L2:T9', 0);
+        case 'nGrams':
+            return getDataFromSheet(u, 'nGrams', 'E2:N102', 0);
+        case 'displayAds':
+            return getDataFromSheet(u, 'display', 'A:I', 9);
+        case 'videoAds':
+            return getDataFromSheet(u, 'video', 'A:J', 10);
+        case 'myData':
+            return getMyData();
+        default:
+            Logger.log('Invalid report name');
+            return null;
+    }
+}
+
+function getSheetValue(rangeName) {
+    try {
+        sheet = SpreadsheetApp.openByUrl(SHEET_URL).getSheetByName('Settings').getRange(rangeName).getValue();
+        return sheet;
+    } catch (error) {
+        Logger.log(`Error in getting value for range ${rangeName}: ${error}`);
+        return {};
+    }
+}
+
+function getDataFromSheet(ss, tabName, range, col) {
+    try {
+        const sheet = SpreadsheetApp.openByUrl(ss).getSheetByName(tabName);
+        if (!sheet) {
+            throw new Error(`Sheet ${tabName} not found in the spreadsheet.`);
+        }
+
+        let data = sheet.getRange(range).getValues().filter(row => row.some(cell => !!cell));
+        if (data.length === 0 || data.length === 1) {
+            throw new Error(`No data available for this report.`);
+        }
+
+        // Apply sorting and limiting logic based on col
+        if (col === 0) {
+            // Return all data without modifications if col is 0
+            data = data;
+        } else if (col === -1) {
+            // Limit to 100 items without sorting if col is -1
+            data = data.slice(0, 100);
+        } else {
+            // Sort the data by the specified column in descending order and limit to the first 100 rows
+            data = data.sort((a, b) => {
+                let valA = parseFloat(a[col]), valB = parseFloat(b[col]);
+                return valB - valA; // Sorting in descending order
+            }).slice(0, 100);
+        }
+
+        // Format data to string
+        const formattedData = data.map(row => {
+            return row.map(cell => {
+                return !isNaN(Number(cell)) ? Number(cell).toFixed(2) : cell;
+            }).join(',');
+        }).join('\n');
+
+        return formattedData;
+    } catch (error) {
+        Logger.log(`Error in getting data from ${tabName} tab: ${error}`);
+        return "No data available for this report.";
+    }
+}
+
+function getMyData() {
+    try {
+        const sheet = SpreadsheetApp.openByUrl(SHEET_URL).getSheetByName('myData');
+        // find the size of the data
+        const lastRow = sheet.getLastRow();
+        const lastColumn = sheet.getLastColumn();
+        // get the range of the data
+        const range = sheet.getRange(1, 1, lastRow, lastColumn);
+        // get the values of the data
+        const values = range.getValues();
+        // filter out the empty rows
+        const filteredData = values.filter(row => row.some(cell => !!cell));
+        // format the data
+        const formattedData = filteredData.map(row => {
+            return row.map(cell => {
+                if (!isNaN(Number(cell))) {
+                    return Number(cell).toFixed(2);
+                } else {
+                    return cell;
+                }
+            }).join(',');
+        }).join('\n');
+        return formattedData;
+    } catch (error) {
+        Logger.log(`Error in fetching data from myData tab: ${error}`);
+        return null;
+    }
+}
+
+function textToSpeechOpenAI(text, title, apiKey, voice, folder) {
+    Logger.log('Converting audio version of report');
+    // check if no data & if that's the case, return early with message
+    if (text === "No data available for this report.") {
+        return text;
+    }
+    const apiUrl = 'https://api.openai.com/v1/audio/speech'; // Endpoint for OpenAI TTS
+
+    const payload = JSON.stringify({
+        model: "tts-1",
+        voice: voice,
+        input: text
+    });
+
+    const options = {
+        method: 'post',
+        contentType: 'application/json',
+        payload: payload,
+        headers: {
+            'Authorization': 'Bearer ' + apiKey
+        },
+        muteHttpExceptions: true // To handle HTTP errors gracefully
+    };
+
+    // Make the API request
+    let response = UrlFetchApp.fetch(apiUrl, options);
+
+    // Log the Content-Type header
+    let contentType = response.getHeaders()['Content-Type'];
+
+    if (contentType.includes('audio/mpeg')) {
+        try {
+            // Attempt to access the folder by ID
+            let f = DriveApp.getFolderById(folder);
+
+            // If successful, proceed with saving the file
+            let blob = response.getBlob();
+            // Create short timestamp for file name
+            let timeStamp = Utilities.formatDate(new Date(), "Australia/Sydney", "MMMdd_HHmm");
+            let fileInFolder = f.createFile(blob.setName(title + ' ' + timeStamp + ".mp3"));
+            let fileUrl = fileInFolder.getUrl();
+            Logger.log('Audio file saved in folder: ' + fileUrl);
+
+            return fileUrl;
+        } catch (e) {
+            // Handle the case where the folder does not exist
+            Logger.log('Folder does not exist or access denied. Folder ID: ' + folder);
+            return null; 
+        }
+    } else {
+        // Handle unexpected content types
+        Logger.log('Unexpected content type: ' + contentType);
+    }
+}
+
+function getPrompt(r, d, l, s, w) {
+    if (d === "No data available for this report.") {
+        return d;
+    }
+    const prompt = s['p_' + r];
+
+    const suffix = `
+    You're an expert at analyzing google ads data & providing actionable insights.
+    Give all answers in the ${l} language.
+    `;
+
+    let usageSuffix = '';
+    switch (w) {
+        case 'internal use':
+            usageSuffix = s['p_internal'];
+            break;
+        case 'to send to client':
+            usageSuffix = s['p_client'];
+            break;
+    }
+
+    return (suffix + prompt + '\n' + usageSuffix + '\n' + d) || suffix;
+}
+
+function log(ss, dur, s) {
+    Logger.log(`Report created in: ${dur} seconds.`);
+    let newRow = [new Date(), dur, s.report, s.lang, s.useVoice, s.voice, s.useEmail, s.model];
+    logUrl = ss.getRangeByName('u').getValue();
+    [SpreadsheetApp.openByUrl(logUrl), ss].map(s => s.getSheetByName('log')).forEach(sheet => sheet.appendRow(newRow));
+}
+
+function sendEmail(e, r, o, useVoice, audioUrl) {
+    // check if no data present & exit early with message if that's the case
+    if (o === "No data available for this report.") {
+        return o;
+    }
+    let subject = 'Insights Created using the PMax Whisperer Script';
+    let body = 'Hey<br>Your ' + r + ' insights are ready.<br>'
+    if (useVoice === true && audioUrl) {
+        let fileName = audioUrl.split('/').pop();
+        body += '<br>Audio file: <a href="' + audioUrl + '">' + fileName + '</a>';
+    }
+    body += '\n' + o;
+
+    // Sending the email
+    try {
+        if (e && e.includes('@')) {
+            MailApp.sendEmail({
+                to: e,
+                subject: subject,
+                htmlBody: body
+            });
+            Logger.log('Email sent to: ' + e);
+        } else {
+            Logger.log('Invalid email address: ' + e);
+        }
+    }
+    catch (e) {
+        Logger.log('Error sending email: ' + e);
+    }
+}
+
+
+// Thanks for trying out the script.
+
+// To get updates about my scripts & training, drop me your email here:
+// https://pmaxscript.ck.page/update
+
+
+// PS you're awesome!
