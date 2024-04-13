@@ -18,9 +18,13 @@ Next, install the PMax Whisperer script & copy the **[template sheet here](https
 
 **PMax Sheet URL** - the URL of the sheet you created when you setup the latest version of my script (above)
 
-**OpenAI API Key** - don’t worry, you’ll struggle to spend $1/month, but you do need this. Get one [**here**](https://platform.openai.com/api-keys).
+**Choose LLM** - new for v7, choose if you want to use OpenAI or Anthropic
 
-**Report**  - choose the data you’d like to report on, there are 6 options. Have a play & see which you find more useful.
+**AI Model to use** - no need to change this, but if you want to save a few pennies, choose 'cheaper' (better means GPT4 or claude3-opus)
+
+**API Key** - don’t worry, you’ll struggle to spend $1/month, but you do need this. Get yours [**OpenAI**](https://platform.openai.com/api-keys) [**Anthropic**](https://docs.anthropic.com/claude/reference/getting-started-with-the-api)
+
+**Report**  - choose the report(s) you want, there are 9 options. Have a play & see which you find more useful. New for v7 create multiple reports at once!
 
 **Language** - pick your language from the list (you can type yours over the top of the dropdown if it’s not there!)
 
@@ -28,13 +32,13 @@ Next, install the PMax Whisperer script & copy the **[template sheet here](https
 
 **Voice** - choose the OpenAI voice you’d like to use. Click the [link](https://platform.openai.com/docs/guides/text-to-speech) to hear samples of each.
 
-**Google Drive Folder ID** - this is where your audio files are sent. Instructions **[here](https://www.notion.so/How-to-find-your-Google-Folder-ID-5d18d0574e244c73aa866c48bae5accd?pvs=21)**
+**Google Drive Folder ID** - this is where your audio files are sent. Instructions **[here](https://www.notion.so/How-to-find-your-Google-Folder-ID-5d18d0574e244c73aa866c48bae5accd?pvs=21)** Note you must include a folder ID if you want an audio file created (it needs to get saved somewhere)
 
 **Email Output?** - do you want results emailed, tick if you do
 
 **Email to** - enter the email address (just one) of the person you want the output sent to (it might not be possible to send it to yourself)
 
-**AI Model to use** - no need to change this, but if you want to save a few pennies, choose a GPT 3.5 model
+
 
 
 
@@ -44,7 +48,7 @@ Put the URL of *your* PMax Whisperer sheet between the single quotes at the top 
 Name, Authorise (a couple of times) & Save the script
 Hit ‘Preview’ to run the script & see the logs as they happen - or just hit ‘Run’
 Once it’s working the way you want, schedule the script to run as often as you like (probably daily or weekly)
-Your chosen report will be added to the ‘Output’ tab (& emailed if you chose that option).
+Your chosen report(s) will be added at the top of the ‘Output’ tab (& emailed if you chose that option).
 The Audio version will be saved in the Google Folder you choose & a link shown in the logs & in the email & on the Output tab.
 
 
@@ -60,8 +64,9 @@ And if you’ve read this far - thank you - and please, drop a quick comment ont
 
 ### But what if you don’t have the PMax script? Can you still use the Whisperer?
 
-Yes!! I’ve added a new report option, so that even if you don’t have my latest PMax script, you’ll get value from the Whisperer script.
+Yes!! I’ve added a report option, so that even if you don’t have my latest PMax script, you’ll get value from the Whisperer script.
 Just paste the data you want to analyze into the tab ‘myData’, choose that report option in Settings & run the script in the normal way 🙂
+Have a look at the 'example myData' tab if you want to copy/paste data for a quick test
 
 
 
