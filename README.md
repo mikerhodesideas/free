@@ -16,7 +16,7 @@ The benefit being you can use AI to get insights on data for YOUR account once y
 
 Next, install the PMax Whisperer script & copy the **[v7 template sheet here](https://docs.google.com/spreadsheets/d/1SLEu4Gj3x5UfcyIgWGcqQerV7ej9u38GHifSUZh4wrI/copy).**
 
-
+<br/><br/>
 
 ### **Let’s walk through the various settings you’ll need on your Sheet**
 
@@ -42,7 +42,7 @@ Next, install the PMax Whisperer script & copy the **[v7 template sheet here](ht
 
 **Email to** - enter the email address (just one) of the person you want the output sent to (it might not be possible to send it to yourself)
 
-
+<br/><br/>
 
 
 
