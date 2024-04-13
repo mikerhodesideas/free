@@ -7,7 +7,7 @@
 2. The PMax Whisperer script installed with all your settings completed in the Settings Tab (Get the script on this site!)
 
 
-### **If you haven’t yet bought my PMax Script, head [here](https://www.notion.so/Updates-and-Latest-Versions-4fd1ed42c4084bbdb3776c4f35fa733c?pvs=21)**
+### **If you haven’t yet bought my PMax Script, head to [hPMaxScript.com](https://www.pmaxscript.com)**
 
 ### [**https://mikerhodes.circle.so/checkout/latest-script](https://mikerhodes.circle.so/checkout/latest-script)**
 
