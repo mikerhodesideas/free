@@ -6,6 +6,7 @@
 
 2. The PMax Whisperer [v7](https://github.com/mikerhodesideas/free/blob/main/whisperer-v7) script installed and setup
 
+<br/>
 
 ### **If you haven’t yet bought my PMax Script, head to [PMaxScript.com](https://mikerhodesidea.wpenginepowered.com/)**
 
