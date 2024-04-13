@@ -4,7 +4,7 @@
 
 1. The Google Sheet created using the latest version of my PMax Script (currently [v58](https://mikerhodes.circle.so/c/script/)) and,
 
-2. The PMax Whisperer script installed with all your settings completed in the Settings Tab (Get the script on this site!)
+2. The PMax Whisperer [v7](https://github.com/mikerhodesideas/free/blob/main/whisperer-v7) script installed and setup
 
 
 ### **If you haven’t yet bought my PMax Script, head to [PMaxScript.com](https://mikerhodesidea.wpenginepowered.com/)**
