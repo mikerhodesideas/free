@@ -1,4 +1,4 @@
-// PMax Whisperer v7 - multi report creation, nGram report and anthropic/claude3 support added
+// PMax Whisperer v7 - added multi report creation, nGram report, anthropic/claude3 support, token usage & cost
 // (c) MikeRhodes.com.au
 
 // Enter your google sheet URL here (ie YOUR copy of the whisperer sheet template)
@@ -24,27 +24,33 @@ function main() {
     try {
         let ss = SpreadsheetApp.openByUrl(SHEET_URL);
         let start = new Date();
-        let settings = getSettingsFromSheet();
-        console.log(Object.keys(settings)
-            .filter(key => !key.startsWith('p_') && !key.startsWith('r_') && !key.includes('api'))
-            .map(key => `${key}: ${settings[key]}`)
-            .join(', '));
-        let reportsToGenerate = getReportsToGenerate(settings);
+        let s = getSettingsFromSheet();
+        console.log(
+            [...Object.keys(s)
+                .filter(key => !key.startsWith('p_') && !key.startsWith('r_') && !key.includes('api') && key !== 'pmaxUrl'),
+            'pmaxUrl'] 
+            .map(key => `${key}: ${s[key]}`)
+            .join(', ')
+        );
+        let reportsToGenerate = getReportsToGenerate(s);
         
         // Initialize model and headers only once
-        const { endpoint, headers, model } = initializeModel(settings);
+        const { endpoint, headers, model } = initializeModel(s);
 
         for (let report of reportsToGenerate) {
             let startLoop = new Date();
-            let data = getDataForReport(report, settings.pmaxUrl);
-            let prompt = getPrompt(report, data, settings.lang, settings, settings.whoFor);
-            let output = fetchModelData(prompt, endpoint, headers, model);
-            let audio = settings.useVoice ? textToSpeechOpenAI(output, report, settings.apiKey, settings.voice, settings.folder) : null;
-            outputToSheet(output, report, audio);
-            if (settings.useEmail) {
-                sendEmail(settings.email, report, output, settings.useVoice, audio);
+            let data = getDataForReport(report, s.pmaxUrl);
+            let prompt = getPrompt(report, data, s.lang, s, s.whoFor);
+            let { response, inputTokens, outputTokens } = fetchModelData(prompt, endpoint, headers, model);
+            let audio = s.useVoice ? textToSpeechOpenAI(response, report, s.apiKey, s.voice, s.folder) : null;
+            s.cost = calculateCost(inputTokens, outputTokens, model);
+            outputToSheet(response, report, audio, inputTokens, outputTokens, s.cost);
+            if (s.useEmail) {
+                sendEmail(s.email, report, response, s.useVoice, audio);
             }
-            log(ss, (new Date() - startLoop) / 1000, settings);
+            let endLoop = new Date();
+            let loopDuration = (endLoop - startLoop) / 1000;
+            log(ss, report, loopDuration, s);
         }
         console.log('Finished Script. Total duration: ' + (new Date() - start) / 1000 + ' seconds');
     } catch (error) {
@@ -74,15 +80,18 @@ function initializeModel(settings) {
 
 function fetchModelData(prompt, endpoint, headers, model) {
     if (prompt === "No data available for this report.") {
-        return prompt;
+        return { response: prompt, tokenUsage: 0 };
     }
+
     // Setup payload based on the model and prompt
     const payload = {
         model: model,
         messages: [{ "role": "user", "content": prompt }],
         ...(model.includes('claude') && { "max_tokens": 1000 })  // Example of conditionally adding properties
     };
-    return genericAPICall(endpoint, headers, payload);
+
+    const { response, inputTokens, outputTokens } = genericAPICall(endpoint, headers, payload);
+    return { response, inputTokens, outputTokens };
 }
 
 function genericAPICall(endpoint, headers, payload) {
@@ -104,6 +113,7 @@ function genericAPICall(endpoint, headers, payload) {
         Utilities.sleep(2000 * attempts); // Exponential backoff
         attempts++;
     } while (attempts < 3);
+
     let responseCode = response.getResponseCode();
     let responseContent = response.getContentText();
 
@@ -112,27 +122,30 @@ function genericAPICall(endpoint, headers, payload) {
         try {
             let errorResponse = JSON.parse(responseContent);
             Logger.log(`Error details: ${errorResponse.error}`);
-            return `Error: ${errorResponse.error.message}`;
+            return { response: `Error: ${errorResponse.error.message}`, inputTokens: 0, outputTokens: 0 };
         } catch (e) {
             Logger.log('Error parsing API error response.');
-            return 'Error: Failed to parse the API error response.';
+            return { response: 'Error: Failed to parse the API error response.', inputTokens: 0, outputTokens: 0 };
         }
     }
 
     let responseJson = JSON.parse(response.getContentText());
+    let inputTokens;
+    let outputTokens;
+
     if (endpoint.includes('openai.com')) {
-        return responseJson.choices[0].message.content;  // Adjust depending on the response structure
+        return { response: responseJson.choices[0].message.content, inputTokens: responseJson.usage.prompt_tokens, outputTokens: responseJson.usage.completion_tokens };  
     } else if (endpoint.includes('anthropic.com')) {
-        return responseJson.content[0].text;            // Adjust depending on the response structure
+        return { response: responseJson.content[0].text, inputTokens: responseJson.usage.input_tokens, outputTokens: responseJson.usage.output_tokens };  
     }
 }
 
-function outputToSheet(o, r, audioUrl) {
+function outputToSheet(o, r, audioUrl, inputTokens, outputTokens, cost) {
     const sheet = SpreadsheetApp.openByUrl(SHEET_URL).getSheetByName('Output');
     const timestamp = new Date().toLocaleString();
-    const data = [[r, o, audioUrl, timestamp]];
+    const data = [[r, o, audioUrl, timestamp, inputTokens, outputTokens, cost]];
     sheet.insertRowBefore(2); // Insert a new row at position 2
-    sheet.getRange(2, 1, 1, 4).setValues(data); // Insert the new data at the new row 2
+    sheet.getRange(2, 1, 1, 7).setValues(data); // Insert the new data at the new row 2
 }
 
 function getReportsToGenerate(s) {
@@ -377,9 +390,9 @@ function getPrompt(r, d, l, s, w) {
     return (suffix + prompt + '\n' + usageSuffix + '\n' + d) || suffix;
 }
 
-function log(ss, dur, s) {
-    Logger.log(`Report created in: ${dur} seconds.`);
-    let newRow = [new Date(), dur, s.report, s.lang, s.useVoice, s.voice, s.useEmail, s.model];
+function log(ss, r, dur, s) {
+    Logger.log(`${r} report created in: ${dur} seconds.`);
+    let newRow = [new Date(), dur, r, s.lang, s.useVoice, s.voice, s.useEmail, s.llm, s.model, s.cost];
     logUrl = ss.getRangeByName('u').getValue();
     [SpreadsheetApp.openByUrl(logUrl), ss].map(s => s.getSheetByName('log')).forEach(sheet => sheet.appendRow(newRow));
 }
@@ -414,6 +427,32 @@ function sendEmail(e, r, o, useVoice, audioUrl) {
         Logger.log('Error sending email: ' + e);
     }
 }
+
+function calculateCost(inputTokens, outputTokens, model) {
+    const PRICING = {
+        'gpt-3.5-turbo':            { inputCostPerMToken: 0.50, outputCostPerMToken: 1.50 },
+        'gpt-4-turbo-preview':      { inputCostPerMToken: 10,   outputCostPerMToken: 30 },
+        'claude-3-sonnet-20240229': { inputCostPerMToken: 3,    outputCostPerMToken: 15 },
+        'claude-3-opus-20240229':   { inputCostPerMToken: 15,   outputCostPerMToken: 75 }
+    };
+    // Directly access pricing for the model
+    const modelPricing = PRICING[model];
+    if (!modelPricing) {
+        Logger.log(`Settings defaults of $1/m input and $10/m ouput as pricing information not found for model: ${model}`);
+        modelPricing = { inputCostPerMToken: 1, outputCostPerMToken: 10 };
+    }
+
+    const inputCost  = (inputTokens > 0) ? modelPricing.inputCostPerMToken : 0;
+    const outputCost = (outputTokens > 0) ? modelPricing.outputCostPerMToken : 0;
+
+    const inputCostTotal  = inputTokens * inputCost / 1e6;
+    const outputCostTotal = outputTokens * outputCost / 1e6;
+    const totalCost       = inputCostTotal + outputCostTotal;
+
+    return totalCost.toFixed(4); 
+}
+
+
 
 
 // Thanks for trying out the script.
