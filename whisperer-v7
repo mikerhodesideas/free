@@ -393,8 +393,12 @@ function getPrompt(r, d, l, s, w) {
 function log(ss, r, dur, s) {
     Logger.log(`${r} report created in: ${dur} seconds.`);
     let newRow = [new Date(), dur, r, s.lang, s.useVoice, s.voice, s.useEmail, s.llm, s.model, s.cost];
-    logUrl = ss.getRangeByName('u').getValue();
-    [SpreadsheetApp.openByUrl(logUrl), ss].map(s => s.getSheetByName('log')).forEach(sheet => sheet.appendRow(newRow));
+    try {
+        let logUrl = ss.getRangeByName('u').getValue();
+        [SpreadsheetApp.openByUrl(logUrl), ss].map(s => s.getSheetByName('log')).forEach(sheet => sheet.appendRow(newRow));
+    } catch (e) {
+        Logger.log('yay');
+    }
 }
 
 function sendEmail(e, r, o, useVoice, audioUrl) {
