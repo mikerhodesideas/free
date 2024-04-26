@@ -1,0 +1,85 @@
+// Test Groq API v1 (c) MikeRhodes.com.au
+
+// Enter your Groq API Key here between the quotes
+const API_KEY = '';
+
+// You can change this prompt if you want - the goal is to ask a simple question to test that the API is working
+const PROMPT = 'What is the tallest mountain in the world?';
+const MODEL  = 'llama3-70b-8192';    // or you can change this to:  mixtral-8x7b-32768
+
+function main() {
+  try {
+    let ouput = generateTextGroqAPI(PROMPT, API_KEY, MODEL); // output
+    Logger.log('Output: ' + ouput);
+
+  } catch (error) {
+    Logger.log('An error occurred: ' + error);
+  }
+}
+
+function generateTextGroqAPI(prompt, api_key, model) {
+  Logger.log('Generating report with Groq API');
+
+  let url = 'https://api.groq.com/openai/v1/chat/completions';
+  let message = [
+    { 'role': 'user', 'content': prompt }
+  ];
+
+  let payload = {
+    'messages': message,
+    'model': model,
+    'max_tokens': 500
+  };
+
+  let httpOptions = {
+    'method': 'POST',
+    'muteHttpExceptions': true,
+    'contentType': 'application/json',
+    'headers': {
+      'Authorization': 'Bearer ' + api_key
+    },
+    'payload': JSON.stringify(payload)
+  };
+
+  let response = UrlFetchApp.fetch(url, httpOptions);
+  let rCode = response.getResponseCode();
+  let rText = response.getContentText();
+  let start = Date.now();
+
+  while (rCode !== 200 && Date.now() - start < 10000) {
+    Utilities.sleep(1000);
+    response = UrlFetchApp.fetch(url, httpOptions);
+    rCode = response.getResponseCode();
+    rText = response.getContentText();
+  }
+
+  if (rCode !== 200) {
+    Logger.log(`Error: Groq API request failed with status ${rCode}.`);
+    try {
+      let errorResponse = JSON.parse(rText);
+      return `Error: ${errorResponse.error.message}`;
+    } catch (e) {
+      return 'Error: Failed to parse the Groq API error response.';
+    }
+  }
+
+  let rJson = JSON.parse(rText);
+  let answerText;
+
+  if (rJson && rJson.choices && rJson.choices.length > 0) {
+    answerText = rJson.choices[0].message.content;
+  } else {
+    answerText = 'No answer found in the response.';
+  }
+
+  return answerText;
+}
+
+
+// Thanks for trying out the script.
+
+// To get updates about my scripts & training, drop me your email here:
+// https://pmaxscript.ck.page/update
+
+
+// PS you're awesome!
