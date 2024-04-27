@@ -2,7 +2,7 @@
 
 **There are two key things you’ll need to use this Script/Sheet tool.**
 
-1. The Google Sheet created using the latest version of my PMax Script (currently [v58](https://mikerhodes.circle.so/c/script/)) and,
+1. The Google Sheet created using the latest version of my PMax Script (currently [v60](https://mikerhodes.circle.so/c/script/)) and,
 
 2. The PMax Whisperer [v7](https://github.com/mikerhodesideas/free/blob/main/whisperer-v7) script installed and setup
 
