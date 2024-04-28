@@ -1,7 +1,9 @@
-// template sheet to copy -> https://docs.google.com/spreadsheets/d/1lVoCVHoZjvsRCr2rjJxuMe_4DjqC7YTMBrhNOo7g43U/copy
+// template sheet to copy -> https://docs.google.com/spreadsheets/d/1MWCTEJiU3bdj2j7pPkseqjoiRq21RGwJ9QjO3IH_Ptw/copy
 
 const SHEET_URL  = ''        // create a copy of the template above first
 const CLIENTCODE = ''        // this string will be added to the sheet name 
+const COST_THRESHOLD = 50    // changing this affects the nGram Matrix buckets
+const ROAS_THRESHOLD = 10    // changing this affects the nGram Matrix buckets
 
 // ------------------ //   (c) MikeRhodes.com.au   // ------------------- //
 
@@ -65,7 +67,7 @@ function extractSearchTerms(e) {
 function extractAndAggregateNGrams(e, t) {
     let a = {};
     e.slice(1).forEach((e) => {
-        ("s" === t ? e[2] : e["t"].toLowerCase()).split(" ").forEach((c) => {
+        ("s" === t ? cleanNGram(e[2]) : cleanNGram(e["t"].toLowerCase())).split(" ").forEach((c) => {
             a[c = c || "blank"] || (a[c] = {
                 nGram: c,
                 clicks: 0,
@@ -81,14 +83,17 @@ function extractAndAggregateNGrams(e, t) {
             "t" === t && (a[c].cost += e.Cost);
         });
     });
-    let c = "s" === t ? [["nGram", "Impr", "Clicks", "Conv", "Value", "CTR", "CvR", "AOV"]] : [["nGram", "Impr", "Clicks", "Cost", "Conv", "Value", "CTR", "CvR", "AOV", "ROAS"]];
+    let c = "s" === t ? [["nGram", "Impr", "Clicks", "Conv", "Value", "CTR", "CvR", "AOV"]] : [["nGram", "Impr", "Clicks", "Cost", "Conv", "Value", "CTR", "CvR", "AOV", "ROAS", "Bucket"]];
     for (let e in a) {
         let r = a[e];
         r.CTR = r.impr > 0 ? r.clicks / r.impr : 0;
         r.CvR = r.clicks > 0 ? r.conv / r.clicks : 0;
         r.AOV = r.conv > 0 ? r.value / r.conv : 0;
-        "t" === t && (r.ROAS = r.cost > 0 ? r.value / r.cost : 0);
-        c.push("s" === t ? [r.nGram, r.impr, r.clicks, r.conv, r.value, r.CTR, r.CvR, r.AOV] : [r.nGram, r.impr, r.clicks, r.cost, r.conv, r.value, r.CTR, r.CvR, r.AOV, r.ROAS]);
+        if (t === "t") {
+            r.ROAS = r.cost > 0 ? r.value / r.cost : 0;
+            r.Bucket = determineBucket(r.cost, r.conv, r.ROAS, COST_THRESHOLD, ROAS_THRESHOLD);
+        }
+        c.push("s" === t ? [r.nGram, r.impr, r.clicks, r.conv, r.value, r.CTR, r.CvR, r.AOV] : [r.nGram, r.impr, r.clicks, r.cost, r.conv, r.value, r.CTR, r.CvR, r.AOV, r.ROAS, r.Bucket]);
     }
     return c.sort(((e, t) => "nGram" === e[0] ? -1 : "nGram" === t[0] ? 1 : t[2] - e[2])), c = c.filter((e) => "blank" !== e[0]), c;
 }
@@ -143,7 +148,14 @@ function cleanNGram(e) {
     const t = ".,/#!$%^&*;:{}=-_`~()";
     for (; e.length > 0 && t.includes(e[0]); ) e = e.substring(1);
     for (; e.length > 0 && t.includes(e[e.length - 1]); ) e = e.substring(0, e.length - 1);
-    return e.length <= 1 && (e = ""), e;
+    return e.length <= 1 ? "" : e;
+} 
+
+function determineBucket(cost, conv, roas, tCost, tRoas) {
+    if (cost === 0) return 'zombie';
+    if (conv === 0) return 'zeroconv';
+    if (cost < tCost) return roas < tRoas ? 'meh' : 'flukes';
+    return roas < tRoas ? 'costly' : 'profitable';
 }
 
 /*
