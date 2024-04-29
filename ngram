@@ -1,9 +1,7 @@
-// template sheet to copy -> https://docs.google.com/spreadsheets/d/1MWCTEJiU3bdj2j7pPkseqjoiRq21RGwJ9QjO3IH_Ptw/copy
+// template sheet to copy -> https://docs.google.com/spreadsheets/d/1f_1C2fZneYLfL_7ooDwnEJdL2o_L2J4XC35VGoACjQA/copy
 
 const SHEET_URL  = ''        // create a copy of the template above first
 const CLIENTCODE = ''        // this string will be added to the sheet name 
-const COST_THRESHOLD = 50    // changing this affects the nGram Matrix buckets
-const ROAS_THRESHOLD = 10    // changing this affects the nGram Matrix buckets
 
 // ------------------ //   (c) MikeRhodes.com.au   // ------------------- //
 
@@ -11,7 +9,7 @@ function main() {
     Logger.log("Starting the Free nGram script.");
     const e = CLIENTCODE || AdsApp.currentAccount().getName(),
           t = SpreadsheetApp.openByUrl(SHEET_URL);
-    t.rename(`${e} - PMax Insights - MikeRhodes.com.au (c)`);
+    t.rename(`${e} - Free nGram Analysis - MikeRhodes.com.au (c)`);
     const a = {
         impr: "metrics.impressions",
         clicks: "metrics.clicks",
@@ -91,7 +89,7 @@ function extractAndAggregateNGrams(e, t) {
         r.AOV = r.conv > 0 ? r.value / r.conv : 0;
         if (t === "t") {
             r.ROAS = r.cost > 0 ? r.value / r.cost : 0;
-            r.Bucket = determineBucket(r.cost, r.conv, r.ROAS, COST_THRESHOLD, ROAS_THRESHOLD);
+            r.Bucket = determineBucket(r.cost, r.conv, r.ROAS, (r.cost * 10), (r.ROAS * 2));
         }
         c.push("s" === t ? [r.nGram, r.impr, r.clicks, r.conv, r.value, r.CTR, r.CvR, r.AOV] : [r.nGram, r.impr, r.clicks, r.cost, r.conv, r.value, r.CTR, r.CvR, r.AOV, r.ROAS, r.Bucket]);
     }
