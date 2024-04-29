@@ -218,7 +218,7 @@ function getDataForReport(r, u) {
         case 'productMatrix':
             return getDataFromSheet(u, 'Title', 'L2:T9', 0);
         case 'nGrams':
-            return getDataFromSheet(u, 'nGrams', 'E2:N102', 0);
+            return getDataFromSheet(u, 'tNgrams', 'A1:K202', 0);
         case 'displayAds':
             return getDataFromSheet(u, 'display', 'A:I', 9);
         case 'videoAds':
