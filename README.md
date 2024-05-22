@@ -2,9 +2,9 @@
 
 **There are two key things you’ll need to use this Script/Sheet tool.**
 
-1. The Google Sheet created using the latest version of my PMax Script (currently [v60](https://mikerhodes.circle.so/c/script/)) and,
+1. The Google Sheet created using the latest version of my PMax Script (currently [v68](https://mikerhodes.circle.so/c/script/)) and,
 
-2. The PMax Whisperer [v7](https://github.com/mikerhodesideas/free/blob/main/whisperer-v7) script installed and setup
+2. The PMax Whisperer [v68](https://github.com/mikerhodesideas/free/) script installed and setup
 
 <br/>
 
@@ -15,21 +15,21 @@
 Follow the instructions, get it all setup, then come back here.
 The benefit being you can use AI to get insights on data for YOUR account once your pmax sheet is setup.
 
-Next, install the PMax Whisperer script & copy the **[v7 template sheet here](https://docs.google.com/spreadsheets/d/1SLEu4Gj3x5UfcyIgWGcqQerV7ej9u38GHifSUZh4wrI/copy).**
+Next, install the PMax Whisperer script & copy the template sheet (link in script)
 
 <br/><br/>
 
 ### **Let’s walk through the various settings you’ll need on your Sheet**
 
-**PMax Sheet URL** - the URL of the sheet you created when you setup the latest version of my script (above)
+**Choose the Reports** - tick the reports you want to create. Note some of these require the 'advanced' options in the PMax Insights sheet to have run first
+
+**PMax Sheet URL** - the URL of the sheet you created when you setup the latest version of my PMaxInsights script 
 
 **Choose LLM** - new for v7, choose if you want to use OpenAI or Anthropic
 
-**AI Model to use** - no need to change this, but if you want to save a few pennies, choose 'cheaper' (better means GPT4 or claude3-opus)
+**AI Model to use** - no need to change this, but if you want to save a few pennies, choose 'cheaper' (better means GPT4o or claude3-opus)
 
-**API Key** - don’t worry, you’ll struggle to spend $1/month, but you do need this. Get yours [**OpenAI**](https://platform.openai.com/api-keys) [**Anthropic**](https://docs.anthropic.com/claude/reference/getting-started-with-the-api)
-
-**Report**  - choose the report(s) you want, there are 9 options. Have a play & see which you find more useful. New for v7 create multiple reports at once!
+**API Key** - don’t worry, you’ll struggle to spend a few dollars a month, but you do need this. Get yours [**OpenAI**](https://platform.openai.com/api-keys) [**Anthropic**](https://docs.anthropic.com/claude/reference/getting-started-with-the-api)
 
 **Language** - pick your language from the list (you can type yours over the top of the dropdown if it’s not there!)
 
@@ -52,7 +52,7 @@ Next, install the PMax Whisperer script & copy the **[v7 template sheet here](ht
 Put the URL of *your* PMax Whisperer sheet between the single quotes at the top (SHEET_URL = ‘’)
 Name, Authorise (a couple of times) & Save the script
 Hit ‘Preview’ to run the script & see the logs as they happen - or just hit ‘Run’
-Once it’s working the way you want, schedule the script to run as often as you like (probably daily or weekly)
+Once it’s working the way you want, schedule the script to run as often as you like (probably weekly, there's not much extra value running it daily)
 Your chosen report(s) will be added at the top of the ‘Output’ tab (& emailed if you chose that option).
 The Audio version will be saved in the Google Folder you choose & a link shown in the logs & in the email & on the Output tab.
 
@@ -64,7 +64,7 @@ Note, I don’t email every time I update the main script (which is typically ev
 And I would LOVE to hear how this tool could be better. I’ve already got lots of ideas, but I always love to hear more.
 Please let me know if you’ve got an idea you think would help the majority of users.
 
-And if you’ve read this far - thank you - and please, drop a quick comment onto LinkedIn. Algos & all that… it really helps more people find the tool.
+And if you’ve read this far - thank you 
 
 
 ### But what if you don’t have the PMax script? Can you still use the Whisperer?
