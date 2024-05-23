@@ -1,0 +1,100 @@
+// Test OpenAI API v2 - test all 3 models as at May 2024  -  (c) MikeRhodes.com.au
+
+// Enter you OpenAI API Key here between the quotes
+const API_KEY = ''
+
+// You can change this if you want - we want to ask a simple question to test the API
+const PROMPT = "What's the tallest mountain in the world?"
+
+
+function main() {
+    try {
+        let s = new Date();
+        let m1 = "gpt-4o";
+        let m2 = "gpt-4-turbo";
+        let m3 = "gpt-3.5-turbo";
+        try {
+            let o1 = generateTextOpenAI(PROMPT, API_KEY, m1); // output
+            Logger.log('Output with ' + m1 + ': ' + o1);
+        } catch (error) {
+            Logger.log('Error with model ' + m1 + ': ' + error);
+        }
+        
+        try {
+            let o2 = generateTextOpenAI(PROMPT, API_KEY, m2); // output
+            Logger.log('Output with ' + m2 + ': ' + o2);
+        } catch (error) {
+            Logger.log('Error with model ' + m2 + ': ' + error);
+        }
+        
+        try {
+            let o3 = generateTextOpenAI(PROMPT, API_KEY, m3); // output
+            Logger.log('Output with ' + m3 + ': ' + o3);
+        } catch (error) {
+            Logger.log('Error with model ' + m3 + ': ' + error);
+        }
+        let e  = new Date();
+        let d = (e - s) / 1000;
+        Logger.log('Script took: ' + d + ' seconds');
+    } catch (error) {
+        Logger.log('An error occurred: ' + error);
+    }
+}
+
+function generateTextOpenAI(p, a, m) {
+    Logger.log('Generating report with OpenAI');
+    let url = 'https://api.openai.com/v1/chat/completions';
+    let mes = [
+        { "role": "user", "content": p }
+    ];
+    let payload = {
+        "model": m,
+        "messages": mes
+    };
+    let httpOptions = {
+        "method": "POST",
+        "muteHttpExceptions": true,
+        "contentType": "application/json",
+        "headers": {
+            "Authorization": 'Bearer ' + a
+        },
+        'payload': JSON.stringify(payload)
+    };
+    let r = UrlFetchApp.fetch(url, httpOptions);
+    let rCode = r.getResponseCode();
+    let rText = r.getContentText();
+    let start = Date.now();
+    while (r.getResponseCode() !== 200 && Date.now() - start < 30000) {
+        Utilities.sleep(5000);
+        r = UrlFetchApp.fetch(url, httpOptions);
+        Logger.log('Time elapsed: ' + (Date.now() - start) / 1000 + ' seconds');
+    }
+
+    if (rCode !== 200) {
+        Logger.log(`Error: OpenAI API request failed with status ${rCode}.`);
+        Logger.log(`Read about error codes: https://help.openai.com/en/articles/6891839-api-error-codes`)
+        try {
+            let errorResponse = JSON.parse(rText);
+            Logger.log(`Error details: ${errorResponse.error}`);
+            return `Error: ${errorResponse.error.message}`;
+        } catch (e) {
+            Logger.log('Error parsing OpenAI API error response.');
+            return 'Error: Failed to parse the OpenAI API error response.';
+        }
+    }
+    let rJson = JSON.parse(r.getContentText());
+    let c = rJson.choices;
+    let t = c[0].message.content;
+    return (t);
+}
+
+
+
+
+// Thanks for trying out the script.
+
+// To get updates about my scripts & training, drop me your email here:
+// https://pmaxscriptupdate.com
+
+
+// PS you're awesome!
