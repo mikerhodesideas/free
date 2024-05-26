@@ -1,0 +1,235 @@
+// Keyword v Search Query Report - copy the template sheet first & enter your url below
+// copy template: https://docs.google.com/spreadsheets/d/1kKluYF8C1uDGC_0eYx8yZG3JgyedNo3h2T2jlRyxYnY/copy
+
+const SHEET   = ''   // enter URL of YOUR sheet here between single quotes
+const NUMDAYS = 91   // change this to change the number of days of data to pull for
+
+// please don't change anything below this line ------------------------------------------------------------
+
+function main() {
+    const KEYWORD = 'keyword'
+    const SQR = 'sqr'
+    const DSA = 'dsa'
+    let ss = SpreadsheetApp.openByUrl(SHEET);
+    let timezone = AdsApp.currentAccount().getTimeZone();
+    let elements = defineElements();
+    let queries  = buildQueries(elements, NUMDAYS, timezone);
+
+    let dataTypes = [
+        { data: fetchData(queries.keywordQuery), type: "adGroupCriterion.keyword.text", sheetName: KEYWORD },
+        { data: fetchData(queries.searchQueryReport), type: "searchTermView.searchTerm", sheetName: SQR },
+        { data: fetchData(queries.dsaQuery), type: "dynamicSearchAdsSearchTermView.searchTerm", sheetName: DSA }
+    ];
+
+    dataTypes.forEach(({ data, type, sheetName }) => {
+        let aggRows = aggData(data, type);
+        let ngrams = extractSearchNgrams(aggRows, type);
+        outputDataToSheet(ss, sheetName, aggRows, 'data');
+        outputDataToSheet(ss, sheetName, ngrams, 'ngrams');
+    });
+}
+
+// fetch data given a query string using search
+function fetchData(q) {
+    let data = [];
+    let iterator = AdsApp.search(q, { 'apiVersion': 'v16' });
+    while (iterator.hasNext()) {
+        const row = iterator.next();
+        const rowData = flattenObject(row); // Flatten the row data
+        data.push(rowData);
+    }
+    return data.sort((a, b) => b.impr - a.impr);
+}
+
+// flatten the object data to enable more processing of that data
+function flattenObject(ob) {
+    let toReturn = {};
+    for (let i in ob) {
+        if ((typeof ob[i]) === 'object') {
+            let flatObject = flattenObject(ob[i]);
+            for (let x in flatObject) {
+                toReturn[i + '.' + x] = flatObject[x];
+            }
+        } else {
+            toReturn[i] = ob[i];
+        }
+    }
+    return toReturn;
+}
+
+// function to output data to sheet
+function outputDataToSheet(ss, sheetName, data, outputType) {
+    const startTime = new Date();
+
+    // Check if data is undefined or empty, and log the issue and return
+    if (!data || data.length === 0) {
+        Logger.log(`No data to write to ${sheetName}. Skipping output.`);
+        return;
+    }
+
+    // Modify sheet name for ngrams output and determine if headers need to be added
+    let headers = [];
+    if (outputType === 'ngrams') {
+        sheetName += '_N';
+    } else {
+        headers = [Object.keys(data[0])]; // Add headers only if not ngrams
+    }
+
+    // Access or create the sheet
+    let sheet = ss.getSheetByName(sheetName) || ss.insertSheet(sheetName);
+
+    // Prepare data array and sort by impressions in descending order
+    let dataArray = data.sort((a, b) => b.impr - a.impr).map(row => Object.values(row));
+    let fullDataArray = headers.concat(dataArray); // Concatenate headers with data if headers exist
+
+    // Clear existing data in the sheet and write new data
+    sheet.clearContents();
+    sheet.getRange(1, 1, fullDataArray.length, fullDataArray[0].length).setValues(fullDataArray);
+
+    const duration = new Date() - startTime;
+    Logger.log(`Writing ${dataArray.length} rows to ${sheetName} took ${duration}ms`);
+}
+
+// function to take in rows object & aggregate data based on a key 
+function aggData(rows, key) {
+    if (!rows || rows.length === 0) {
+        return []; // Return an empty array if rows is undefined or empty
+    }
+    let aggRows = {};
+    rows.forEach(row => {
+        const keyValue = row[key];
+        if (!aggRows[keyValue]) {
+            aggRows[keyValue] = {
+                [key]: keyValue,
+                impr: 0,
+                clicks: 0,
+                cost: 0,
+                conv: 0,
+                value: 0
+            };
+        }
+        let aggData = aggRows[keyValue];
+        aggData.impr += Number(row['metrics.impressions']) || 0;
+        aggData.clicks += Number(row['metrics.clicks']) || 0;
+        aggData.cost += (Number(row['metrics.costMicros']) / 1e6) || 0;
+        aggData.conv += Number(row['metrics.conversions']) || 0;
+        aggData.value += Number(row['metrics.conversionsValue']) || 0;
+    });
+    // add calc metrics: ctr, cvr, cpa, aov, roas
+    Object.values(aggRows).forEach(row => {
+        row.ctr = row.impr ? (row.clicks / row.impr) * 100 : 0;
+        row.cvr = row.clicks ? (row.conv / row.clicks) * 100 : 0;
+        row.cpa = row.conv ? (row.cost / row.conv) : 0;
+        row.aov = row.conv ? (row.value / row.conv) : 0;
+        row.roas = row.cost ? (row.value / row.cost) : 0;
+    });
+    return Object.values(aggRows);
+}
+
+// Define a function for creating query elements
+function defineElements() {
+    return {
+        kwText: 'ad_group_criterion.keyword.text',
+        campName: 'campaign.name',
+        impr: 'metrics.impressions',
+        clicks: 'metrics.clicks',
+        cost: 'metrics.cost_micros',
+        conv: 'metrics.conversions',
+        value: 'metrics.conversions_value',
+        searchTerm: 'search_term_view.search_term',
+        searchTermStatus: 'search_term_view.status',
+        conversionActionName: 'segments.conversion_action_name',
+        keywordMatchType: 'keyword.info.match_type',
+        keywordText: 'keyword.info.text',
+        dsaSearchTerm: 'dynamic_search_ads_search_term_view.search_term',
+        hasMatchingKw: 'dynamic_search_ads_search_term_view.has_matching_keyword',
+        hasNegativeKw: 'dynamic_search_ads_search_term_view.has_negative_keyword',
+        hasNegativeUrl: 'dynamic_search_ads_search_term_view.has_negative_url',
+        dsaLandingPage: 'dynamic_search_ads_search_term_view.landing_page',
+        searchImprFilter: ' AND metrics.impressions > 0 ',
+        searchCampaignFilter: ' AND campaign.advertising_channel_type = "SEARCH" AND metrics.cost_micros > 1000000 ',
+        dsaClickFilter: ' AND metrics.clicks > 0 '
+    };
+}
+
+// define a function for building queries
+function buildQueries(e, days, zone) {
+    let dateRange = getDateRange(days, zone);
+    let queries = {};
+
+    queries.keywordQuery =
+        'SELECT ' + [e.kwText, e.campName, e.impr, e.clicks, e.cost, e.conv, e.value].join(', ') +
+        ' FROM keyword_view' +
+        ' WHERE ' + dateRange + e.searchImprFilter
+
+    queries.searchQueryReport =
+        'SELECT ' + [e.searchTerm, e.searchTermStatus, e.campName, e.impr, e.clicks, e.cost, e.conv, e.value].join(', ') +
+        ' FROM search_term_view' +
+        ' WHERE ' + dateRange + e.searchCampaignFilter
+
+    queries.dsaQuery =
+        'SELECT ' + [e.dsaSearchTerm, e.campName, e.impr, e.clicks, e.cost, e.conv, e.value, e.hasMatchingKw, e.hasNegativeKw, e.hasNegativeUrl, e.dsaLandingPage].join(', ') +
+        ' FROM dynamic_search_ads_search_term_view' +
+        ' WHERE ' + dateRange + e.dsaClickFilter
+
+    return queries;
+}
+
+// function to get date range for a given number of days and timezone
+function getDateRange(numDays, timezone) {
+    let today = new Date();
+    let date91DaysAgo = new Date();
+    date91DaysAgo.setDate(today.getDate() - numDays);
+    let formatted91 = Utilities.formatDate(date91DaysAgo, timezone, "yyyy-MM-dd");
+    let formattedToday = Utilities.formatDate(today, timezone, "yyyy-MM-dd");
+    return ` segments.date BETWEEN "${formatted91}" AND "${formattedToday}" `;
+}
+
+// function to find ngrams for each of the 3 sets of aggregated data
+function extractSearchNgrams(data, key) {
+    let nGrams = {};
+
+    data.forEach(row => {
+        let term = row[key].toLowerCase();
+        let terms = term.split(' ');
+
+        terms.forEach((nGram) => {
+            nGram = nGram || 'blank';
+            if (!nGrams[nGram]) {
+                nGrams[nGram] = { nGram, impr: 0, clicks: 0, conv: 0, value: 0, cost: 0 };
+            }
+            nGrams[nGram].impr += row.impr;
+            nGrams[nGram].clicks += row.clicks;
+            nGrams[nGram].conv += row.conv;
+            nGrams[nGram].value += row.value;
+            nGrams[nGram].cost += row.cost;
+        });
+    });
+
+    // Calculate additional metrics for each nGram
+    Object.values(nGrams).forEach(nGram => {
+        nGram.ctr = nGram.impr ? (nGram.clicks / nGram.impr) * 100 : 0;
+        nGram.cvr = nGram.clicks ? (nGram.conv / nGram.clicks) * 100 : 0;
+        nGram.cpa = nGram.conv ? (nGram.cost / nGram.conv) : 0;
+        nGram.aov = nGram.conv ? (nGram.value / nGram.conv) : 0;
+        nGram.roas = nGram.cost ? (nGram.value / nGram.cost) : 0;
+    });
+
+    // Convert object to array and sort by cost
+    let allNGrams = Object.values(nGrams)
+        .filter(nGram => nGram.nGram !== 'blank')
+        .sort((a, b) => b.cost - a.cost)
+        .map(nGram => [nGram.nGram, nGram.impr, nGram.clicks, nGram.cost, nGram.conv, nGram.value,
+            nGram.ctr.toFixed(2), nGram.cvr.toFixed(2), nGram.cpa.toFixed(2), nGram.aov.toFixed(2), nGram.roas.toFixed(2)]);
+
+    // Add headers at the beginning
+    allNGrams.unshift(['nGram', 'Impr', 'Clicks', 'Cost', 'Conv', 'Value', 'CTR', 'CVR', 'CPA', 'AOV', 'ROAS']);
+
+    return allNGrams;
+}
+
+
+
+// Get all the info about my pmax script at PMaxScript.com & help docs at pmax.super.site
+
+// PS you're awesome
