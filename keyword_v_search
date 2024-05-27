@@ -70,6 +70,36 @@ function calculateWeeklyAverages(ss, data, sheetName) {
     outputDataToSheet(ss, 'averages', outputArray, 'averages');
 }
 
+// function to output data to sheet
+function outputDataToSheet(ss, sheetName, data, outputType) {
+    const startTime = new Date();
+    if (!data || data.length === 0) {
+        Logger.log(`No data to write to ${sheetName}. Skipping output.`);
+        return;
+    }
+    // Modify sheet name for ngrams output and determine if headers need to be added
+    let headers = [];
+    if (outputType === 'ngrams' || outputType === 'averages') {
+        sheetName += '_N';
+    } else {
+        headers = [Object.keys(data[0])]; // Add headers only if not ngrams
+    }
+    let sheet = ss.getSheetByName(sheetName) || ss.insertSheet(sheetName);
+    // Prepare data array and sort by impressions in descending order
+    if (outputType !== 'averages') {
+        dataArray = data.sort((a, b) => b.impr - a.impr).map(row => Object.values(row));
+    } else {
+        dataArray = data;
+    }
+    let fullDataArray = headers.concat(dataArray); // Concatenate headers with data if headers exist
+    // Clear existing data in the sheet and write new data
+    sheet.clearContents();
+    sheet.getRange(1, 1, fullDataArray.length, fullDataArray[0].length).setValues(fullDataArray);
+
+    const duration = new Date() - startTime;
+    Logger.log(`Writing ${dataArray.length} rows to ${sheetName} took ${duration}ms`);
+}
+
 // fetch data given a query string using search
 function fetchData(q) {
     let data = [];
@@ -96,32 +126,6 @@ function flattenObject(ob) {
         }
     }
     return toReturn;
-}
-
-// function to output data to sheet
-function outputDataToSheet(ss, sheetName, data, outputType) {
-    const startTime = new Date();
-    if (!data || data.length === 0) {
-        Logger.log(`No data to write to ${sheetName}. Skipping output.`);
-        return;
-    }
-    // Modify sheet name for ngrams output and determine if headers need to be added
-    let headers = [];
-    if (outputType === 'ngrams' || outputType === 'averages') {
-        sheetName += '_N';
-    } else {
-        headers = [Object.keys(data[0])]; // Add headers only if not ngrams
-    }
-    let sheet = ss.getSheetByName(sheetName) || ss.insertSheet(sheetName);
-    // Prepare data array and sort by impressions in descending order
-    let dataArray = data.sort((a, b) => b.impr - a.impr).map(row => Object.values(row));
-    let fullDataArray = headers.concat(dataArray); // Concatenate headers with data if headers exist
-    // Clear existing data in the sheet and write new data
-    sheet.clearContents();
-    sheet.getRange(1, 1, fullDataArray.length, fullDataArray[0].length).setValues(fullDataArray);
-
-    const duration = new Date() - startTime;
-    Logger.log(`Writing ${dataArray.length} rows to ${sheetName} took ${duration}ms`);
 }
 
 // function to take in rows object & aggregate data based on a key 
