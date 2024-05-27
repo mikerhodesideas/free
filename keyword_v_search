@@ -2,15 +2,16 @@
 // copy template: https://docs.google.com/spreadsheets/d/1kKluYF8C1uDGC_0eYx8yZG3JgyedNo3h2T2jlRyxYnY/copy
 
 const SHEET   = ''   // enter URL of YOUR sheet here between single quotes
-const NUMDAYS = 91   // change this to change the number of days of data to pull for
+const NUMDAYS = 90   // change this to change the number of days of data to pull for (weekly data will use 4x this number)
 
 // please don't change anything below this line ------------------------------------------------------------
 
 function main() {
-    const KEYWORD = 'keyword'
-    const SQR = 'sqr'
-    const DSA = 'dsa'
-    let ss = SpreadsheetApp.openByUrl(SHEET);
+    const KEYWORD= 'keyword'
+    const SQR    = 'sqr'
+    const DSA    = 'dsa'
+    const WEEK   = 'week'
+    let ss       = SpreadsheetApp.openByUrl(SHEET);
     let timezone = AdsApp.currentAccount().getTimeZone();
     let elements = defineElements();
     let queries  = buildQueries(elements, NUMDAYS, timezone);
@@ -18,15 +19,55 @@ function main() {
     let dataTypes = [
         { data: fetchData(queries.keywordQuery), type: "adGroupCriterion.keyword.text", sheetName: KEYWORD },
         { data: fetchData(queries.searchQueryReport), type: "searchTermView.searchTerm", sheetName: SQR },
-        { data: fetchData(queries.dsaQuery), type: "dynamicSearchAdsSearchTermView.searchTerm", sheetName: DSA }
+        { data: fetchData(queries.dsaQuery), type: "dynamicSearchAdsSearchTermView.searchTerm", sheetName: DSA },
+        { data: fetchData(queries.weeklySearchQueryReport), type: "searchTermView.searchTerm", sheetName: WEEK }
     ];
 
     dataTypes.forEach(({ data, type, sheetName }) => {
-        let aggRows = aggData(data, type);
-        let ngrams = extractSearchNgrams(aggRows, type);
-        outputDataToSheet(ss, sheetName, aggRows, 'data');
-        outputDataToSheet(ss, sheetName, ngrams, 'ngrams');
+        if (sheetName === WEEK) {
+            calculateWeeklyAverages(ss, data, sheetName);
+        } else {
+            let aggRows = aggData(data, type);
+            let ngrams  = extractSearchNgrams(aggRows, type);
+            outputDataToSheet(ss, sheetName, aggRows, 'data');
+            outputDataToSheet(ss, sheetName, ngrams, 'ngrams');
+        }
     });
+}
+
+// func to find weekly averages
+function calculateWeeklyAverages(ss, data, sheetName) {
+    let weeklyData = {};
+    data.forEach(row => {
+        let searchTerm = row['searchTermView.searchTerm'];
+        let week = row['segments.week'];
+        if (searchTerm && week) {
+            if (!weeklyData[week]) {
+                weeklyData[week] = {
+                    totalWords: 0,
+                    totalSearchTerms: 0
+                };
+            }
+            let words = searchTerm.trim().split(/\s+/).length;
+            weeklyData[week].totalWords += words;
+            weeklyData[week].totalSearchTerms++;
+        }
+    });
+
+    // Create an object for weekly averages
+    let weeklyAverages = {};
+    for (let week in weeklyData) {
+        let data = weeklyData[week];
+        let averageWords = data.totalWords / data.totalSearchTerms;
+        weeklyAverages[week] = averageWords;
+    }
+
+    // Convert the weeklyAverages object to an array suitable for output
+    let outputArray = [['week', 'ave words']]; // Start with headers
+    for (let week in weeklyAverages) {
+        outputArray.push([week, weeklyAverages[week]]);
+    }
+    outputDataToSheet(ss, 'averages', outputArray, 'averages');
 }
 
 // fetch data given a query string using search
@@ -60,28 +101,21 @@ function flattenObject(ob) {
 // function to output data to sheet
 function outputDataToSheet(ss, sheetName, data, outputType) {
     const startTime = new Date();
-
-    // Check if data is undefined or empty, and log the issue and return
     if (!data || data.length === 0) {
         Logger.log(`No data to write to ${sheetName}. Skipping output.`);
         return;
     }
-
     // Modify sheet name for ngrams output and determine if headers need to be added
     let headers = [];
-    if (outputType === 'ngrams') {
+    if (outputType === 'ngrams' || outputType === 'averages') {
         sheetName += '_N';
     } else {
         headers = [Object.keys(data[0])]; // Add headers only if not ngrams
     }
-
-    // Access or create the sheet
     let sheet = ss.getSheetByName(sheetName) || ss.insertSheet(sheetName);
-
     // Prepare data array and sort by impressions in descending order
     let dataArray = data.sort((a, b) => b.impr - a.impr).map(row => Object.values(row));
     let fullDataArray = headers.concat(dataArray); // Concatenate headers with data if headers exist
-
     // Clear existing data in the sheet and write new data
     sheet.clearContents();
     sheet.getRange(1, 1, fullDataArray.length, fullDataArray[0].length).setValues(fullDataArray);
@@ -131,6 +165,7 @@ function defineElements() {
     return {
         kwText: 'ad_group_criterion.keyword.text',
         campName: 'campaign.name',
+        segWeek: 'segments.week',
         impr: 'metrics.impressions',
         clicks: 'metrics.clicks',
         cost: 'metrics.cost_micros',
@@ -155,23 +190,23 @@ function defineElements() {
 // define a function for building queries
 function buildQueries(e, days, zone) {
     let dateRange = getDateRange(days, zone);
+    let yearDateRange = getDateRange(days * 4, zone);
     let queries = {};
 
     queries.keywordQuery =
         'SELECT ' + [e.kwText, e.campName, e.impr, e.clicks, e.cost, e.conv, e.value].join(', ') +
-        ' FROM keyword_view' +
-        ' WHERE ' + dateRange + e.searchImprFilter
+        ' FROM keyword_view' + ' WHERE ' + dateRange + e.searchImprFilter
 
     queries.searchQueryReport =
         'SELECT ' + [e.searchTerm, e.searchTermStatus, e.campName, e.impr, e.clicks, e.cost, e.conv, e.value].join(', ') +
-        ' FROM search_term_view' +
-        ' WHERE ' + dateRange + e.searchCampaignFilter
+        ' FROM search_term_view' + ' WHERE ' + dateRange + e.searchCampaignFilter
 
     queries.dsaQuery =
         'SELECT ' + [e.dsaSearchTerm, e.campName, e.impr, e.clicks, e.cost, e.conv, e.value, e.hasMatchingKw, e.hasNegativeKw, e.hasNegativeUrl, e.dsaLandingPage].join(', ') +
-        ' FROM dynamic_search_ads_search_term_view' +
-        ' WHERE ' + dateRange + e.dsaClickFilter
+        ' FROM dynamic_search_ads_search_term_view' + ' WHERE ' + dateRange + e.dsaClickFilter
 
+    queries.weeklySearchQueryReport = 'SELECT ' + [e.searchTerm, e.searchTermStatus, e.campName, e.impr, e.clicks, e.cost, e.conv, e.value, e.segWeek].join(', ') +
+        ' FROM search_term_view' + ' WHERE ' + yearDateRange + e.searchCampaignFilter;
     return queries;
 }
 
@@ -220,16 +255,10 @@ function extractSearchNgrams(data, key) {
         .filter(nGram => nGram.nGram !== 'blank')
         .sort((a, b) => b.cost - a.cost)
         .map(nGram => [nGram.nGram, nGram.impr, nGram.clicks, nGram.cost, nGram.conv, nGram.value,
-            nGram.ctr.toFixed(2), nGram.cvr.toFixed(2), nGram.cpa.toFixed(2), nGram.aov.toFixed(2), nGram.roas.toFixed(2)]);
+        nGram.ctr.toFixed(2), nGram.cvr.toFixed(2), nGram.cpa.toFixed(2), nGram.aov.toFixed(2), nGram.roas.toFixed(2)]);
 
     // Add headers at the beginning
     allNGrams.unshift(['nGram', 'Impr', 'Clicks', 'Cost', 'Conv', 'Value', 'CTR', 'CVR', 'CPA', 'AOV', 'ROAS']);
 
     return allNGrams;
 }
-
-
-
-// Get all the info about my pmax script at PMaxScript.com & help docs at pmax.super.site
-
-// PS you're awesome
