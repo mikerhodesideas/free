@@ -1,0 +1,121 @@
+// v70  - LP (Landing Pages) Free Version
+
+function main() {
+    Logger.log('Starting the Landing Page Insights script.');
+    let start = new Date();
+    let st = 'https://docs.google.com/spreadsheets/d/1pURmdxd91rdGtQ21TKW6hMggWqwRNJ-L8I1uWJSc86c/';
+    let a = AdsApp.currentAccount().getName();
+    let template = SpreadsheetApp.openByUrl(st);
+    let ss = template.copy(a ? a + ' - LP Insights - MikeRhodes.com.au (c)' : 'LP Insights - MikeRhodes.com.au (c)');
+    let e = defineElements();
+    let q = 'SELECT ' + [e.lpUnexpUrl, e.type, e.impr, e.clicks, e.cost, e.conv, e.value].join(',') + e.report + e.date + e.impr30 + e.pMaxOnly + e.order;
+    let d = fetchData(q);
+    if (!d || Object.keys(d).length === 0) {
+        Logger.log('No eligible PMax campaigns found. Exiting script.');
+        return;
+    }
+    d = aggLPData(d);
+    let t = ss.getSheetByName('paths') || ss.insertSheet('paths');
+    if (t.getLastRow() > 0) {
+        t.getRange(1, 1, t.getLastRow(), t.getLastColumn() - 1).clearContent();
+    }
+    t.getRange(1, 1, d.length, d[0].length).setValues(d);
+    let end = new Date();
+    let duration = ((end - start) / 1000).toFixed(1);
+    Logger.log(`Script finished in ${duration} seconds. Your Sheet is at \n${ss.getUrl()}`); 
+} 
+function defineElements() {
+    return {
+        lpUnexpUrl: ' landing_page_view.unexpanded_final_url ',
+        type: ' campaign.advertising_channel_type ',
+        impr: ' metrics.impressions ',
+        clicks: ' metrics.clicks ',
+        cost: ' metrics.cost_micros ',
+        conv: ' metrics.conversions ',
+        value: ' metrics.conversions_value ',
+        report:  ' FROM landing_page_view ',
+        date: ' WHERE segments.date DURING LAST_30_DAYS ',
+        impr30: ' AND metrics.impressions > 30 ',
+        pMaxOnly: ' AND campaign.advertising_channel_type = "PERFORMANCE_MAX" ',
+        order: ' ORDER BY metrics.impressions DESC '
+    };
+}
+function fetchData(q) {
+    let data = [];
+    let iterator = AdsApp.search(q, { 'apiVersion': 'v16' });
+    while (iterator.hasNext()) {
+        let row = iterator.next();
+        data.push(flattenObject(row));
+    }
+    return data;
+    function flattenObject(ob) {
+        let toReturn = {};
+        for (let i in ob) {
+            if ((typeof ob[i]) === 'object' && ob[i] !== null) {
+                let flatObject = flattenObject(ob[i]);
+                for (let x in flatObject) {
+                    toReturn[i + '.' + x] = flatObject[x];
+                }
+            } else {
+                toReturn[i] = ob[i];
+            }
+        }
+        return toReturn;
+    }
+}
+function aggLPData(lpData) {
+    let uD = {};
+    lpData.forEach(row => {
+        let url = row['landingPageView.unexpandedFinalUrl'];
+        if (url) {
+            let [domain, ...pathSegments] = url.split('/').slice(2);
+            let paths = [domain, ...pathSegments.join('/').split('?')[0].split('/')];
+            paths.forEach((path, i) => {
+                path = path || '';
+                let key = `/${paths.slice(1, i + 1).join('/')}`;
+                if (!uD[key]) {
+                    uD[key] = { 
+                        domain: paths[0], 
+                        path1: paths[1] || '', 
+                        path2: paths[2] || '', 
+                        path3: paths[3] || '', 
+                        impr: 0, 
+                        clicks: 0, 
+                        cost: 0, 
+                        conv: 0, 
+                        value: 0, 
+                        bucket: ['domain', 'path1', 'path2', 'path3'][i]
+                    };
+                }
+                uD[key].impr += parseFloat(row['metrics.impressions']) || 0;
+                uD[key].clicks += parseFloat(row['metrics.clicks']) || 0;
+                uD[key].cost += parseFloat(row['metrics.costMicros']) / 1e6 || 0;
+                uD[key].conv += parseFloat(row['metrics.conversions']) || 0;
+                uD[key].value += parseFloat(row['metrics.conversionsValue']) || 0;
+            });
+        }
+    });
+    Object.values(uD).forEach(d => {
+        d.ctr = d.impr ? d.clicks / d.impr : 0;
+        d.cvr = d.clicks ? d.conv / d.clicks : 0;
+        d.aov = d.conv ? d.value / d.conv : 0;
+        d.roas = d.cost ? d.value / d.cost : 0;
+        d.cpa = d.conv ? d.cost / d.conv : 0;
+    });
+    let uS = Object.entries(uD).map(([url, d]) => [
+        url, d.impr, d.clicks, d.cost, d.conv, d.value, d.ctr, d.cvr, d.aov, d.roas, d.cpa, d.bucket, d.domain, d.path1, d.path2, d.path3
+    ]);
+    uS.sort((a, b) => b[1] - a[1]);
+    let uH = [['PathDetail', 'Impr', 'Clicks', 'Cost', 'Conv', 'Value', 'CTR', 'CVR', 'AOV', 'ROAS', 'CPA', 'Bucket', 'Domain', 'Path1', 'Path2', 'Path3']];
+    return uH.concat(uS);
+}
+
+// This is a free script, so it's a bit limited - it gets data for last 30 days & for pages with >30 impressions
+// For more info about my paid scripts, which offer many more reports, more flexibility & fasster insights
+// please visit: PmaxScript.com or play with the demo sheet at bit.ly/PmaxDemo
+
+
+// Now hit preview (or run) and let's get this party started!
+
+
+// PS you're awesome! Thanks for using this free script.
