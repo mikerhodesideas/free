@@ -1,0 +1,243 @@
+// First make a copy of this template sheet: 
+// https://docs.google.com/spreadsheets/d/1eLx4WmhNBKYF_XyYjKJy2IuXkRIHVAmYY6eot3IDL5M/copy
+// then paste the url of YOUR sheet in the SHEET_URL variable below
+
+const SHEET_URL  = ''; // Paste your sheet URL here between the single quotes
+const NUM_DAYS   = 7;  // Choose how many days data you want
+const MIN_CLICKS = 30; // Choose the minimum number of clicks for a search category to be included in the report
+
+
+
+
+
+// more detail about the data:
+
+// there can be a LOT of search terms, so start with a small date range and a high minimum clicks value
+// each term can belong to multiple categories, so the same term can appear multiple times in the report
+// but I have removed duplicate rows (ie the same category, same term, same metrics)
+// please don't yell at me, yell at google
+// please let me know if you come up with great ways to visualize this data, I'd love to see it!
+
+// Use this form to request negatives from google
+// https://support.google.com/google-ads/contact/pmax_implementation
+
+// watch the Paid Media Pros video to see how to use this script (video is for v3. v4 now has additional metrics)
+// https://www.youtube.com/watch?v=cN_4v3NefvM
+
+
+
+
+
+// please don't change any code below this line ---------------------------------------------------------
+
+
+
+
+
+function main() {
+
+    Logger.log('Starting script to get search term insights for performance max campaigns...');
+
+    const ss = SpreadsheetApp.openByUrl(SHEET_URL);
+    const dateRange = getDateRange(NUM_DAYS);
+    let start = new Date();
+
+    let allCats = [['Campaign Name', 'Campaign ID', 'Category Label', 'Category ID', 'Clicks', 'Impr', 'Conv', 'Value', 'CTR', 'CVR', 'AOV']]; // Initialize with headers
+    let allTerms = [['Campaign Name', 'Campaign ID', 'Category Label', 'Search Term', 'Clicks', 'Impr', 'Conv', 'Value', 'CTR', 'CVR', 'AOV']]; // Initialize with headers
+    // First find all relevant pmax campaign IDs
+    try {
+        var campaigns = AdsApp.report(`
+        SELECT 
+            campaign.id, campaign.name, 
+            metrics.clicks, metrics.impressions, metrics.conversions, metrics.conversions_value
+        FROM campaign 
+        WHERE campaign.status != 'REMOVED' 
+            AND campaign.advertising_channel_type = "PERFORMANCE_MAX" 
+            AND metrics.impressions > 0 
+            AND segments.date BETWEEN ${dateRange}
+        `)
+            .rows();
+    } catch (error) {
+        Logger.log('Error getting campaigns report: ' + error);
+        return;
+    }
+
+    if (campaigns.totalNumEntities() == 0) {
+        Logger.log('No performance max campaigns found for the given date range.');
+        return;
+    }
+
+    while (campaigns.hasNext()) {
+        let campaign = campaigns.next();
+
+        // fetch relevant search category IDs for each campaign
+        try {
+            var searchTermInsightsIdsQuery = AdsApp.report(`
+            SELECT 
+                campaign.name, campaign.id, campaign_search_term_insight.category_label, campaign_search_term_insight.id,
+                metrics.clicks, metrics.impressions, metrics.conversions, metrics.conversions_value
+            FROM campaign_search_term_insight 
+            WHERE segments.date BETWEEN ${dateRange}
+                AND campaign_search_term_insight.campaign_id = ${campaign['campaign.id']}
+                AND metrics.clicks >= ${MIN_CLICKS}
+            `)
+                .rows();
+        } catch (error) {
+            Logger.log('Error getting search term insights IDs: ' + error);
+            continue;
+        }
+
+        // add each search category to allCats
+        while (searchTermInsightsIdsQuery.hasNext()) {
+            try {
+                let insight = searchTermInsightsIdsQuery.next();
+
+                let clicks = parseFloat(insight['metrics.clicks']);
+                let impressions = parseFloat(insight['metrics.impressions']);
+                let conversions = parseFloat(insight['metrics.conversions']);
+                let conversionValue = parseFloat(insight['metrics.conversions_value']);
+
+                let CTR = impressions > 0 ? (clicks / impressions * 100).toFixed(2) + '%' : '0%';
+                let CvR = clicks > 0 ? (conversions / clicks * 100).toFixed(2) + '%' : '0%';
+                let AOV = conversions > 0 ? (conversionValue / conversions).toFixed(2) : '0';
+
+                allCats.push([
+                    campaign['campaign.name'],
+                    campaign['campaign.id'],
+                    insight['campaign_search_term_insight.category_label'],
+                    insight['campaign_search_term_insight.id'],
+                    clicks,
+                    impressions,
+                    conversions.toFixed(1),
+                    conversionValue.toFixed(2),
+                    CTR,
+                    CvR,
+                    AOV
+                ]);
+
+
+                // for relevant search category IDs, fetch the search 'term'
+                try {
+                    let searchTermQuery = AdsApp.report(`
+                    SELECT 
+                        segments.search_subcategory, segments.search_term, campaign_search_term_insight.id, 
+                        metrics.clicks, metrics.impressions, metrics.conversions, metrics.conversions_value
+                    FROM campaign_search_term_insight 
+                    WHERE segments.date BETWEEN ${dateRange}
+                        AND campaign_search_term_insight.campaign_id = ${campaign['campaign.id']}
+                        AND campaign_search_term_insight.id = "${insight['campaign_search_term_insight.id']}"
+                    `)
+                    .rows();
+
+                    while (searchTermQuery.hasNext()) {
+                        try {
+                            let term = searchTermQuery.next();
+                            if (term['metrics.clicks'] > 0) {
+                                let termClicks = parseFloat(term['metrics.clicks']);
+                                let termImpressions = parseFloat(term['metrics.impressions']);
+                                let termConversions = parseFloat(term['metrics.conversions']);
+                                let termConversionValue = parseFloat(term['metrics.conversions_value']);
+
+                                let termCTR = termImpressions > 0 ? (termClicks / termImpressions * 100).toFixed(2) + '%' : '0%';
+                                let termCvR = termClicks > 0 ? (termConversions / termClicks * 100).toFixed(2) + '%' : '0%';
+                                let termAOV = termConversions > 0 ? (termConversionValue / termConversions).toFixed(2) : '0';
+
+                                allTerms.push([
+                                    campaign['campaign.name'],
+                                    campaign['campaign.id'],
+                                    insight['campaign_search_term_insight.category_label'],
+                                    term['segments.search_term'],
+                                    termClicks,
+                                    termImpressions,
+                                    termConversions.toFixed(1),
+                                    termConversionValue.toFixed(2),
+                                    termCTR,
+                                    termCvR,
+                                    termAOV
+                                ]);
+                            }
+                        } catch (error) {
+                            Logger.log('Error adding search term to allTerms: ' + error);
+                        }
+                    } // end of searchTermQuery while loop
+
+                } catch (error) {
+                    Logger.log('Error getting search terms for category: ' + error);
+                } // end of inner try-catch
+
+            } catch (error) {
+                Logger.log('Error adding search term insight to allCats: ' + error);
+            } // end of outer try-catch
+        } // end of searchTermInsightsIdsQuery while loop
+    } // end of campaigns while loop
+
+    let termsSheet;
+    let categoriesSheet;
+
+    if (allCats.length > 1) { // Check if there's more than just the header row
+        try {
+            Logger.log('Writing data to the categories tab');
+            categoriesSheet = ss.getSheetByName('categories') ? ss.getSheetByName('categories').clear() : ss.insertSheet('categories');
+            categoriesSheet.getRange(1, 1, allCats.length, allCats[0].length).setValues(allCats);
+        } catch (error) {
+            Logger.log('Error creating or clearing categories sheet: ' + error);
+        }
+    } else {
+        Logger.log('No data found for categories');
+    }
+
+    if (allTerms.length > 1) { // Check if there's more than just the header row
+        try {
+            let uniqueTerms = [];
+            let termSet = new Set();
+
+            allTerms.forEach(term => {
+                let termString = JSON.stringify(term);
+                if (!termSet.has(termString)) {
+                    termSet.add(termString);
+                    uniqueTerms.push(term);
+                }
+            });
+
+            allTerms = uniqueTerms;
+            Logger.log('Writing data to the terms tab');
+            termsSheet = ss.getSheetByName('terms') ? ss.getSheetByName('terms').clear() : ss.insertSheet('terms');
+            termsSheet.getRange(1, 1, allTerms.length, allTerms[0].length).setValues(allTerms);
+        } catch (error) {
+            Logger.log('Error creating or clearing terms sheet: ' + error);
+        }
+    } else {
+        Logger.log('No data found for terms');
+    }
+
+    // tidy up sheets. bold & freeze first row. 
+    // in a perfect world this would set column widths to fit content & remove empty columns, but you're more than capable ;)
+    [termsSheet, categoriesSheet].forEach(sheet => {
+        if (sheet && sheet.getMaxRows() > 0 && sheet.getMaxColumns() > 0) {
+            try {
+                sheet.getRange(1, 1, 1, sheet.getLastColumn()).setFontWeight('bold');
+                sheet.setFrozenRows(1);
+            } catch (error) {
+                Logger.log('Error formatting sheet: ' + error);
+            }
+        }
+    });
+
+    let end = new Date();
+    let dur = (end - start) / 1000;
+    Logger.log(`Script finished in ${dur} seconds`);
+}
+
+// function to get date range
+function getDateRange(numDays) {
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(endDate.getDate() - numDays);
+    const format = date => Utilities.formatDate(date, AdsApp.currentAccount().getTimeZone(), 'yyyyMMdd');
+    return `${format(startDate)} AND ${format(endDate)}`;
+}
+
+
+// For my main PMax script, head to www.PMaxScript.com
+
+// PS you're awesome!
