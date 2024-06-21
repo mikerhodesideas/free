@@ -1,22 +1,22 @@
-// PMax Whisperer v68 - use with v68 of the pmax script (don't have it yet (crazy!) then head over to PmaxScript.com ;)
+// PMax Whisperer v70 - use with v68 of the pmax script . Whaaat? You don't have it yet? (crazy town!) ... quick head over to PmaxScript.com ;)
 // (c) MikeRhodes.com.au
 
 // Enter your Whisperer Sheet URL here (ie YOUR copy of the whisperer sheet template - see below for template url to copy)
 const SHEET_URL  = '';
-const CLIENTCODE = ''        // this string will be added to your sheet name 
+const CLIENTCODE = ''        // this string will be added to your sheet name to make it easier to keep track of your sheets
 
-// First time here? Copy the v68 whisperer template sheet here: https://docs.google.com/spreadsheets/d/1g1x8u-7Kxg__EDwbRkr5-jRobyH8XdigtIg0eoKJhDI/copy
+// First time here? Copy the v70 whisperer template sheet here: https://docs.google.com/spreadsheets/d/1g1x8u-7Kxg__EDwbRkr5-jRobyH8XdigtIg0eoKJhDI/copy
 // Paste YOUR sheet URL below between the single quotes above next to SHEET_URL = (line 5)
 //
 // then...
 //
 // Add your API Key or Keys to the Settings tab (links to find out how to get these from OpenAI & Anthropic are on that tab)
-// Change the rest of the settings on the sheet & the reports you want & hit preview, that's it!
-// Once it's working schedule your script to run daily or weekly (or whatever timeframe you prefer - hourly could get costly & doesn't add much value!)
+// Change the rest of the settings on the sheet & choose the reports you want. Then hit 'preview' in the Google UI, that's it!
+// Once it's working, schedule your script to run daily or weekly, or whatever timeframe you prefer (hourly could get costly & doesn't add much value!)
 
 
 
-// please don't change the code below this line. thanks. -------------------------------------------------------
+// Please don't change the code below this line. Thanks. -------------------------------------------------------
 
 
 const MCC = {
@@ -204,7 +204,7 @@ function main() {
             }
             endpoint = 'https://api.anthropic.com/v1/messages';
             headers = { "x-api-key": settings.anth_apikey, "Content-Type": "application/json", "anthropic-version": "2023-06-01" };
-            model = settings.model === 'better' ? 'claude-3-opus-20240229' : 'claude-3-sonnet-20240229';
+            model = settings.model === 'better' ? 'claude-3-opus-20240229' : 'claude-3-5-sonnet-20240620';
         } else {
             console.error('Invalid model indicator. Please choose between "openai" and "anthropic".');
             throw new Error('Error: Invalid model indicator provided.');
@@ -514,7 +514,7 @@ function main() {
             'gpt-4-turbo': { inputCostPerMToken: 10, outputCostPerMToken: 30 },
             'gpt-4o': { inputCostPerMToken: 5, outputCostPerMToken: 15 },
             'claude-3-haiku-20240307': { inputCostPerMToken: 0.25, outputCostPerMToken: 1.25 },
-            'claude-3-sonnet-20240229': { inputCostPerMToken: 3, outputCostPerMToken: 15 },
+            'claude-3-5-sonnet-20240620': { inputCostPerMToken: 3, outputCostPerMToken: 15 }, // 3.5 is same cost, twice as fast & 'better' than opus
             'claude-3-opus-20240229': { inputCostPerMToken: 15, outputCostPerMToken: 75 }
         };
         // Directly access pricing for the model
