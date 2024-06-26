@@ -1,0 +1,78 @@
+// Test Gemini API v1
+// (c) MikeRhodes.com.au
+// Purpose: to quickly test your API KEY & Gemini account if you have any issues with the Whisperer or PMax scripts
+// go here to get an API Key: https://aistudio.google.com/app/apikey
+
+
+
+// Enter you Gemini API Key here between the quotes (don't worry, I don't get to see your Key)
+const API_KEY = ''
+
+// You can change this prompt if you want - the idea here is that we want to ask a SIMPLE question to test the API
+const PROMPT = "What are google ads scripts?"
+
+
+
+// don't change the code below this line. pretty please. -------------------------------------------------------
+
+
+function main() {
+    try {
+        let start = new Date();
+        let model = "gemini-1.5-pro" // Use gemini-pro for best results
+        let output = generateTextGemini(PROMPT, API_KEY, model); // output
+        Logger.log('Text output: ' + output);
+
+        let end  = new Date();
+        let dur = (end - start) / 1000;
+        Logger.log('Time taken for script to run: ' + dur + ' seconds.');
+
+    } catch (error) {
+        Logger.log('An error occurred: ' + error);
+    }
+}
+
+function generateTextGemini(prompt, apiKey, model) {
+    Logger.log('Generating report with Gemini');
+
+    let data = {
+        'contents': [{
+            'parts': [{
+                'text': prompt
+            }]
+        }],
+        'generationConfig': {
+            'maxOutputTokens': 1000
+        }
+    };
+
+    let httpOptions = {
+        'method': 'post',
+        'contentType': 'application/json',
+        'payload': JSON.stringify(data)
+    };
+
+    try {
+        let url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+        let response = UrlFetchApp.fetch(url, httpOptions);
+        let status = response.getResponseCode(); // Get HTTP status code
+        Logger.log('Status code: ' + status);
+        let responseJson = JSON.parse(response.getContentText());
+        let text = responseJson.candidates[0].content.parts[0].text; // Access the nested text
+        return text
+    } catch (error) {
+        Logger.log('Error fetching data from Gemini API: ' + error);
+        return error.toString(); // Return error details
+    }
+}
+
+
+
+
+// Thanks for trying out the script.
+
+// To get updates about my scripts & training, drop me your email here:
+// https://pmaxscript.ck.page/update
+
+
+// PS you're awesome!
