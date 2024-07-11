@@ -1,0 +1,38 @@
+function main() {
+  const originalUrl = "https://docs.google.com/spreadsheets/d/1mPl24OnCar-n4tIG7HWtpiL5RUrSuBpQslgK8zLwrww/edit#gid=0";
+  
+  try {
+    let originalFile = DriveApp.getFileById(originalUrl.match(/[-\w]{25,}/)[0]);
+    
+    testAccessMethod(originalFile, "ANYONE_WITH_LINK", DriveApp.Access.ANYONE_WITH_LINK);
+    testAccessMethod(originalFile, "PRIVATE", DriveApp.Access.PRIVATE);
+    testAccessMethod(originalFile, "DOMAIN", DriveApp.Access.DOMAIN);
+    testAccessMethod(originalFile, "DOMAIN_WITH_LINK", DriveApp.Access.DOMAIN_WITH_LINK);
+    
+    // Log overall storage information
+    Logger.log(`Storage used: ${DriveApp.getStorageUsed()} bytes`);
+    Logger.log(`Storage limit: ${DriveApp.getStorageLimit()} bytes`);
+    
+  } catch (error) {
+    Logger.log("An error occurred: " + error.message);
+  }
+}
+
+function testAccessMethod(originalFile, methodName, accessMethod) {
+  try {
+    let testFile = originalFile.makeCopy(`Test - ${methodName}`);
+    testFile.setSharing(accessMethod, DriveApp.Permission.EDIT);
+    
+    Logger.log(`${methodName} access test:`);
+    Logger.log(`- URL: ${testFile.getUrl()}`);
+    Logger.log(`- Name: ${testFile.getName()}`);
+    Logger.log(`- Owner: ${testFile.getOwner().getName()}`);
+    Logger.log(`- Last updated: ${testFile.getLastUpdated()}`);
+    Logger.log(`- Size: ${testFile.getSize()} bytes`);
+    Logger.log(`- Mime type: ${testFile.getMimeType()}`);
+    Logger.log("------------------------");
+  } catch (error) {
+    Logger.log(`Error testing ${methodName} access: ${error.message}`);
+    Logger.log("------------------------");
+  }
+}
