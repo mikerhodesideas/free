@@ -1,4 +1,5 @@
-// Test OpenAI API v2 - test all 3 models as at May 2024  -  (c) MikeRhodes.com.au
+// Test OpenAI API v3 - test all 3 models as at July 2024  -  (c) MikeRhodes.com.au
+// added GPT-4o-mini
 
 // Enter you OpenAI API Key here between the quotes
 const API_KEY = ''
@@ -12,7 +13,7 @@ function main() {
         let s = new Date();
         let m1 = "gpt-4o";
         let m2 = "gpt-4-turbo";
-        let m3 = "gpt-3.5-turbo";
+        let m3 = "gpt-4o-mini";
         try {
             let o1 = generateTextOpenAI(PROMPT, API_KEY, m1); // output
             Logger.log('Output with ' + m1 + ': ' + o1);
