@@ -1,4 +1,4 @@
-// Test OpenAI API v1
+// Test OpenAI API v2 - updated July 2024 with GPT-4o-mini
 // (c) MikeRhodes.com.au
 
 // Purpose: to quickly test your API KEY & OpenAI account if you have any issues with the Whisperer or PMax scripts
@@ -22,7 +22,7 @@ function main() {
     try {
 
         let start = new Date();
-        let model = "gpt-3.5-turbo"
+        let model = "gpt-4o-mini"
         let output = generateTextOpenAI(PROMPT, API_KEY, model); // output
 
         Logger.log('Text output: ' + output);
