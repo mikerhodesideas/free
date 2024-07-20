@@ -1,0 +1,122 @@
+// Test OpenAI API v4 - test all 4 models as at 20 July 2024  -  (c) MikeRhodes.com.au
+// added GPT-4o-mini
+
+// Enter you OpenAI API Key here between the quotes
+const API_KEY = ''
+
+// You can change this if you want - we want to ask a simple question to test the API
+const PROMPT = "Describe the view from the second tallest mountain in the world?"
+
+
+// --------------------------------------------------------------------------------
+
+
+function main() {
+    Logger.log('Generating output with OpenAI');
+    try {
+        let s = new Date();
+        let m1 = "gpt-4o";
+        let m2 = "gpt-4-turbo";
+        let m3 = "gpt-3.5-turbo";
+        let m4 = "gpt-4o-mini";
+        let models = [m1, m2, m3, m4];
+        for (let model of models) {
+            try {
+                let output = generateTextOpenAI(PROMPT, API_KEY, model);
+                Logger.log('Output with ' + model + ': \n' + output);
+            } catch (error) {
+                Logger.log('Error with model ' + model + ': ' + error);
+            }
+        }
+        let e  = new Date();
+        let d = (e - s) / 1000;
+        Logger.log('Script took: ' + d + ' seconds');
+    } catch (error) {
+        Logger.log('An error occurred: ' + error);
+    }
+}
+
+function generateTextOpenAI(p, a, m) {
+    let url = 'https://api.openai.com/v1/chat/completions';
+    let mes = [
+        { "role": "user", "content": p }
+    ];
+    let payload = {
+        "model": m,
+        "messages": mes
+    };
+    let httpOptions = {
+        "method": "POST",
+        "muteHttpExceptions": true,
+        "contentType": "application/json",
+        "headers": {
+            "Authorization": 'Bearer ' + a
+        },
+        'payload': JSON.stringify(payload)
+    };
+    let r = UrlFetchApp.fetch(url, httpOptions);
+    let rCode = r.getResponseCode();
+    let rText = r.getContentText();
+    let start = Date.now();
+    while (r.getResponseCode() !== 200 && Date.now() - start < 5000) {
+        Utilities.sleep(1000);
+        r = UrlFetchApp.fetch(url, httpOptions);
+        Logger.log('Time elapsed: ' + (Date.now() - start) / 1000 + ' seconds');
+    }
+
+    if (rCode !== 200) {
+        Logger.log(`Error: OpenAI API request failed with status ${rCode}.`);
+        Logger.log(`Read about error codes: https://help.openai.com/en/articles/6891839-api-error-codes`)
+        try {
+            let errorResponse = JSON.parse(rText);
+            Logger.log(`Error details: ${errorResponse.error}`);
+            return `Error: ${errorResponse.error.message}`;
+        } catch (e) {
+            Logger.log('Error parsing OpenAI API error response.');
+            return 'Error: Failed to parse the OpenAI API error response.';
+        }
+    }
+    let rJson = JSON.parse(r.getContentText());
+    let inputTokens = rJson.usage.prompt_tokens;
+    let outputTokens = rJson.usage.completion_tokens;
+    let cost = calculateCost(inputTokens, outputTokens, m);
+    Logger.log(`Cost for ${m}: $${cost}`);
+    let c = rJson.choices;
+    let t = c[0].message.content;
+    return (t);
+}
+
+function calculateCost(inputTokens, outputTokens, model) {
+    const PRICING = {
+        'gpt-3.5-turbo': { inputCostPerMToken: 0.5, outputCostPerMToken: 1.5 }, // not used
+        'gpt-4-turbo': { inputCostPerMToken: 10, outputCostPerMToken: 30 }, // not used
+        'gpt-4o-mini': { inputCostPerMToken: 0.15, outputCostPerMToken: 0.6 },
+        'gpt-4o': { inputCostPerMToken: 5, outputCostPerMToken: 15 },
+        'claude-3-haiku-20240307': { inputCostPerMToken: 0.25, outputCostPerMToken: 1.25 }, //not used
+        'claude-3-5-sonnet-20240620': { inputCostPerMToken: 3, outputCostPerMToken: 15 },
+        'claude-3-opus-20240229': { inputCostPerMToken: 15, outputCostPerMToken: 75 },
+        'gemini-1.5-pro': { inputCostPerMToken: 3.5, outputCostPerMToken: 10.5 },
+        'gemini-1.5-flash': { inputCostPerMToken: 0.35, outputCostPerMToken: 1.05
+        }
+    };
+    // Directly access pricing for the model
+    let modelPricing = PRICING[model] || { inputCostPerMToken: 1, outputCostPerMToken: 10 };
+    if (!PRICING[model]) {
+        Logger.log(`Default pricing of $1/m input and $10/m output used as no pricing found for model: ${model}`);
+    }
+
+    let inputCost  = inputTokens * (modelPricing.inputCostPerMToken / 1e6);
+    let outputCost = outputTokens * (modelPricing.outputCostPerMToken / 1e6);
+    let totalCost  = inputCost + outputCost;
+
+    return totalCost.toFixed(2);
+}
+
+
+// Thanks for trying out the script.
+
+// To get updates about my scripts & training, drop me your email here:
+// https://pmaxscriptupdate.com
+
+
+// PS you're awesome!
