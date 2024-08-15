@@ -1,0 +1,677 @@
+// PMax Whisperer v76 - use this with v76 of the pmax script . Whaaat? You don't have it yet? (crazy town!) ... quick head over to PmaxScript.com ;)  (c) MikeRhodes.com.au
+// Enter your Whisperer Sheet URL here (ie YOUR copy of the whisperer sheet template - see below for the template url to copy)
+
+const WHISPERER_SHEET_URL = ''        // enter the url of YOUR sheet between the single quotes
+const CLIENTCODE          = ''        // this string will be added to your sheet name to make it easier to keep track of your sheets
+
+
+
+// First time here? 
+// Copy the whisperer template sheet here: https://docs.google.com/spreadsheets/d/1-X6Ogk3NXCzLy4ZSNpnM_aM8mtiZCkn00bmKxqVSsUA/copy
+// Paste YOUR sheet URL below between the single quotes above next to WHISPERER_SHEET_URL = (on line 4)
+//
+// then...
+//
+// Add your API Key or Keys to the Settings tab (links to find out how to get these from OpenAI & Anthropic are on that tab)
+// Change the rest of the settings on the sheet & choose the reports you want. Then hit 'preview' in the Google UI, that's it!
+// Once it's working, schedule your script to run daily or weekly, or whatever timeframe you prefer (hourly could get costly & doesn't add much value!)
+
+
+
+// Please don't change the code below this line. Thanks. -------------------------------------------------------
+
+
+
+const OTHER_SETTINGS = {
+    scriptVersion: 'v76',
+    comingFrom:    'whisperer',
+    mccDay:        'individual',
+    mccTimezone:   'Europe/Rome', //  actual timezone not used in individual script
+    urls: { aiTemplate: 'https://docs.google.com/spreadsheets/d/1-X6Ogk3NXCzLy4ZSNpnM_aM8mtiZCkn00bmKxqVSsUA/' }
+};
+
+function main() {
+    let mcc          = OTHER_SETTINGS;
+    let whispererUrl = WHISPERER_SHEET_URL;
+    let clientCode   = CLIENTCODE;
+    let aiTemplate   = mcc.urls.aiTemplate;
+    let aiRunAt      = -1;
+    let ss           = null;
+    let s = {
+        timezone: mcc.mccTimezone,
+        ident: clientCode
+    };
+
+
+    // Code above this line is different for main pmax script ---------------------------------------------
+
+    let aiSet, lastRunAIDate, aiSheet;
+
+    try {
+        let start = new Date();
+        Logger.log('Processing AI sheet.');
+
+        if (aiRunAt === 99 || (mcc.mccDay !== aiRunAt && aiRunAt !== -1)) {
+            logAndReturn(aiRunAt, whispererUrl, lastRunAIDate);
+            return { whispererUrl, lastRunAIDate };
+        }
+
+        aiSheet = getAISheet(whispererUrl, aiTemplate, clientCode, mcc.scriptVersion);
+        whispererUrl = aiSheet.getUrl();
+
+        aiSet = getSettingsFromAISheet(aiSheet);
+        aiSet = enrichSettings(aiSet, whispererUrl, s, ss, aiSheet);
+
+        let reportsToGenerate = getReportsToGenerate(aiSet);
+
+        if (!reportsToGenerate.length) {
+            Logger.log('No reports to generate. Exiting AI section.');
+            lastRunAIDate = 'No reports to generate.'; // return useful message for MCC sheet
+            return { whispererUrl, lastRunAIDate };
+        }
+
+        if (!aiSet.apiKey && !aiSet.anth_apikey) {
+            Logger.log('No API keys found. Exiting AI section.');
+            lastRunAIDate = 'No API keys found.'; // return useful message for MCC sheet
+            return { whispererUrl, lastRunAIDate };
+        }
+
+        let { endpoint, headers, model } = initializeModel(aiSet);
+        aiSet.modelOut = model;
+
+        processReports(reportsToGenerate, aiSet, endpoint, headers, model, aiSheet, mcc);
+
+        Logger.log('Finished AI Process. Total duration: ' + ((new Date() - start) / 1000).toFixed(0) + ' seconds');
+        Logger.log('Total cost: ' + aiSet.totalCost.toFixed(2) + '\n');
+    } catch (error) {
+        Logger.log('An error occurred: ' + error.toString());
+    }
+
+    lastRunAIDate = Utilities.formatDate(new Date(), mcc.mccTimezone, "MMMM-dd HH:mm");
+    return { whispererUrl, lastRunAIDate };
+
+    // helper funcs for AI stuff - inside processAISheet/main
+
+    function logAndReturn(aiRunAt, whispererUrl, lastRunAIDate) {
+        if (aiRunAt === 99) {
+            Logger.log(`AI Run At Day is set to 'Never', so skipping AI section. Check settings on MCC sheet to change this.`);
+        } else {
+            Logger.log(`AI Run At Day is not today. Not Processing AI section.`);
+        }
+        return { whispererUrl, lastRunAIDate };
+    }
+
+    function getAISheet(whispererUrl, aiTemplate, clientCode, scriptVersion) {
+        let aiSheet;
+        if (whispererUrl) {
+            aiSheet = safeOpenAndShareSpreadsheet(whispererUrl);
+        } else {
+            aiSheet = safeOpenAndShareSpreadsheet(aiTemplate, true, `${clientCode} - AI Whisperer ${scriptVersion} - MikeRhodes.com.au (c)`);
+            Logger.log(`New ${scriptVersion} of AI Whisperer sheet created: ${aiSheet.getUrl()}`);
+        }
+        return aiSheet;
+    }
+
+    function enrichSettings(aiSet, whispererUrl, s, ss, aiSheet) {
+        let enrichedSettings = {
+            ...aiSet,
+            whispererUrl,
+            ident: s.ident,
+            timezone: s.timezone,
+            totalCost: 0
+        };
+
+        if (ss) {
+            aiSheet.getRangeByName('pmaxUrl').setValue(ss.getUrl());
+            ss.getRangeByName('whispererUrl').setValue(whispererUrl);
+        } else {
+            aiSheet.getSheetByName('Get the PMax Script').showSheet();
+
+            if (!enrichedSettings.pmaxUrl) {
+                Logger.log('A Pmax Insights URL should be added to the Whisperer Sheet for best results.');
+                Logger.log('Note: Without a valid Pmax Insights URL, you\'ll only be able to use the \'myData\' option.');
+                enrichedSettings.myDataOnly = true;
+            }
+        }
+        return enrichedSettings;
+    }
+
+    function processReports(reportsToGenerate, aiSet, endpoint, headers, model, aiSheet, mcc) {
+        for (let report of reportsToGenerate) {
+            let startLoop = new Date();
+            let data = getDataForReport(report, aiSet.pmaxUrl, aiSet, mcc);
+            if (data === 'No data available for this report.') {
+                Logger.log('No data available for ' + report + '.\nCheck the settings in the PMax Insights Sheet.');
+                continue;
+            }
+            let { prompt, suffix, usage } = getPrompt(report, data, aiSet);
+            let initialPrompt = suffix + prompt + '\n' + usage + '\n' + data;
+            let { response, cost } = getReponseAndCost(initialPrompt, endpoint, headers, model, 'report generation');
+            aiSet.cost = cost;
+            let audio = aiSet.useVoice ? textToSpeechOpenAI(response, report, aiSet) : null;
+
+            // if using expert mode, check if using expert prompt & rewrite whichever prompt used after eval, then run expert prompt on data
+            if (aiSet.expertMode) {
+                Logger.log('-- Using expert mode for ' + report);
+                let { rewriteResponse, expertResponse, expertCost } = runExpertMode(aiSet, report, data, prompt, suffix, usage, response, endpoint, headers, model);
+                aiSet.expertCost = expertCost;
+                outputToSheet(aiSheet, expertResponse, report, audio, aiSet, model, rewriteResponse, expertCost);
+            } else {
+                outputToSheet(aiSheet, response, report, audio, aiSet, model);
+            }
+
+            if (aiSet.useEmail) {
+                sendEmail(aiSet.email, report, response, aiSet.useVoice, audio);
+            }
+
+            let endLoop = new Date();
+            let aiReportDuration = (endLoop - startLoop) / 1000;
+            logAI(aiSheet, report, aiReportDuration, aiSet);
+        } // loop through reports
+    }
+
+    function runExpertMode(aiSet, report, data, prompt, suffix, usage, response, endpoint, headers, model) {
+        model = aiSet.llm === 'openai' ? 'gpt-4o-2024-08-06' : 'claude-3-5-sonnet-20240620'; // use best available model with valid API key
+
+        // 3 stages: evaluate output, rewrite, run expert prompt
+        let evalPrompt = aiSet.p_evalOutput + '\n\n Original prompt:\n' + suffix + prompt + '\n' + usage + '\n\n Original data:\n' + data + '\n\n Original response:\n' + response;
+        let { response: evalResponse, cost: evalCost } = getReponseAndCost(evalPrompt, endpoint, headers, model, 'evaluation');
+
+        // rewrite original prompt
+        let rewritePrompt = aiSet.p_expertMode + '\n\n Original prompt:\n' + prompt + '\n\n' + evalResponse;
+        let { response: rewriteResponse, cost: rewriteCost } = getReponseAndCost(rewritePrompt, endpoint, headers, model, 'prompt rewrite');
+
+        // run using expert prompt to get better output
+        let expertPrompt = rewriteResponse + '\n\n Original prompt:\n' + suffix + prompt + '\n' + usage + '\n\n' + data;
+        let { response: expertResponse, cost: eCost } = getReponseAndCost(expertPrompt, endpoint, headers, model, 'creation of better report');
+
+        let expertCost = (parseFloat(evalCost) + parseFloat(rewriteCost) + parseFloat(eCost));
+        return { rewriteResponse, expertResponse, expertCost };
+    }
+
+    function getSettingsFromAISheet(aiSheet) {
+        Logger.log('Getting settings from AI sheet');
+        let settingsKeys = [
+            // main settings
+            'llm', 'model', 'apiKey', 'anth_apikey', 'pmaxUrl', 'lang', 'expertMode', 'whoFor',
+            'useVoice', 'voice', 'folder', 'useEmail', 'email', 'maxResults',
+            // prompts
+            'p_productTitles', 'p_landingPages', 'p_changeHistory', 'p_searchCategories',
+            'p_productMatrix', 'p_nGrams', 'p_nGramsSearch', 'p_asset', 'p_myData',
+            'p_internal', 'p_client', 'p_expertMode', 'p_evalOutput',
+            // responses
+            'r_productTitles', 'r_landingPages', 'r_changeHistory', 'r_searchCategories',
+            'r_productMatrix', 'r_nGrams', 'r_nGramsSearch', 'r_asset', 'r_myData',
+            // expert mode prompts
+            'e_productTitles', 'e_landingPages', 'e_changeHistory', 'e_searchCategories',
+            'e_productMatrix', 'e_nGrams', 'e_nGramsSearch', 'e_asset',
+            // expert mode 'use'
+            'use_productTitles', 'use_landingPages', 'use_changeHistory', 'use_searchCategories',
+            'use_productMatrix', 'use_nGrams', 'use_nGramsSearch', 'use_asset'
+        ];  // from v70 removed 'p_placement' & 'r_placement'
+
+        let settings = {};
+        settingsKeys.forEach(key => {
+            settings[key] = aiSheet.getRange(key).getValue();
+        });
+
+        // if no apiKey or anth_apikey found in aiSheet, then use mcc keys & write values to sheet
+        if (!settings.apiKey && mcc.apikey) {
+            settings.apiKey = mcc.apikey;
+            aiSheet.getRangeByName('apiKey').setValue(mcc.apikey);
+            Logger.log(`No API Key found in AI Sheet, using MCC API Key`);
+        }
+        if (!settings.anth_apikey && mcc.anth_apikey) {
+            settings.anth_apikey = mcc.anth_apikey;
+            aiSheet.getRangeByName('anth_apikey').setValue(mcc.anth_apikey);
+            Logger.log(`No Anthropic API Key found in AI Sheet, using MCC API Key`);
+        }
+
+        return settings;
+    }
+
+    function initializeModel(aiSet) {
+        Logger.log('Initializing language model.');
+        let endpoint, headers, model;
+        if (aiSet.llm === 'openai') {
+            if (!aiSet.apiKey) {
+                console.error('Please enter your OpenAI API key in the Settings tab.');
+                throw new Error('Error: OpenAI API key not found.');
+            }
+            endpoint = 'https://api.openai.com/v1/chat/completions';
+            headers = { "Authorization": `Bearer ${aiSet.apiKey}`, "Content-Type": "application/json" };
+            model = aiSet.model === 'better' ? 'gpt-4o-2024-08-06' : 'gpt-4o-mini';
+        } else if (aiSet.llm === 'anthropic') {
+            if (!aiSet.anth_apikey) {
+                console.error('Please enter your Anthropic API key in the Settings tab.');
+                throw new Error('Error: Anthropic API key not found.');
+            }
+            endpoint = 'https://api.anthropic.com/v1/messages';
+            headers = { "x-api-key": aiSet.anth_apikey, "Content-Type": "application/json", "anthropic-version": "2023-06-01" };
+            model = aiSet.model === 'better' ? 'claude-3-5-sonnet-20240620' : 'claude-3-haiku-20240307'; // changed aug 2024, no longer using opus3
+        } else {
+            console.error('Invalid model indicator. Please choose between "openai" and "anthropic".');
+            throw new Error('Error: Invalid model indicator provided.');
+        }
+        return { endpoint, headers, model };
+    }
+
+    function getReponseAndCost(prompt, endpoint, headers, model, stage) {
+        if (prompt === "No data available for this report.") {
+            return { response: prompt, tokenUsage: 0 };
+        }
+
+        // Setup payload based on the model and prompt
+        let payload = {
+            model: model,
+            messages: [{ "role": "user", "content": prompt }],
+            ...(model.includes('claude') && { "max_tokens": 1000 })  // Example of conditionally adding properties
+        };
+
+        let { response, inputTokens, outputTokens } = genericAPICall(endpoint, headers, payload, stage);
+        let cost = calculateCost(inputTokens, outputTokens, model);
+
+        return { response, cost };
+    }
+
+    function genericAPICall(endpoint, headers, payload, stage) {
+        Logger.log(`Making API call for ${stage}.`);
+        let httpOptions = {
+            "method": "POST",
+            "muteHttpExceptions": true,
+            "headers": headers,
+            "payload": JSON.stringify(payload)
+        };
+
+        let attempts = 0;
+        let response;
+        do {
+            response = UrlFetchApp.fetch(endpoint, httpOptions);
+            if (response.getResponseCode() === 200) {
+                break;
+            }
+            Utilities.sleep(2000 * attempts); // Exponential backoff
+            attempts++;
+        } while (attempts < 3);
+
+        let responseCode = response.getResponseCode();
+        let responseContent = response.getContentText();
+
+        if (responseCode !== 200) {
+            Logger.log(`API request failed with status ${responseCode}. Use my free scripts to test your API key: https://github.com/mikerhodesideas/free`);
+            try {
+                let errorResponse = JSON.parse(responseContent);
+                Logger.log(`Error details: ${JSON.stringify(errorResponse.error.message)}`);
+                return { response: `Error: ${errorResponse.error.message}`, inputTokens: 0, outputTokens: 0 };
+            } catch (e) {
+                Logger.log('Error parsing API error response.');
+                return { response: 'Error: Failed to parse the API error response.', inputTokens: 0, outputTokens: 0 };
+            }
+        }
+
+        let responseJson = JSON.parse(response.getContentText());
+        let inputTokens;
+        let outputTokens;
+
+        if (endpoint.includes('openai.com')) {
+            return { response: responseJson.choices[0].message.content, inputTokens: responseJson.usage.prompt_tokens, outputTokens: responseJson.usage.completion_tokens };
+        } else if (endpoint.includes('anthropic.com')) {
+            return { response: responseJson.content[0].text, inputTokens: responseJson.usage.input_tokens, outputTokens: responseJson.usage.output_tokens };
+        }
+    }
+
+    function outputToSheet(aiSheet, output, report, audioUrl, aiSet, model, eResponse, eCost) {
+        let sheet = aiSheet.getSheetByName('Output');
+        let timestamp = Utilities.formatDate(new Date(), aiSet.timezone, "MMMM-dd HH:mm");
+        let data = [[report, output, aiSet.cost, eCost ? eCost : 'n/a', model, audioUrl, timestamp]];
+        sheet.insertRowBefore(2); // Insert a new row at position 2
+        sheet.getRange(2, 1, 1, data[0].length).setValues(data); // Insert the new data at the new row 2
+
+        if (eResponse && eCost) { // expert mode output
+            let expertRangeName = 'e_' + report;
+            let expertRange = aiSheet.getRangeByName(expertRangeName);
+            if (expertRange) {
+                expertRange.setValue(eResponse);
+            } else {
+                Logger.log('Named range not found for expert response: ' + expertRangeName);
+            }
+        }
+    }
+
+    function getReportsToGenerate(s) {
+        let reports = [];
+        for (let key in s) {
+            if (key.startsWith('r_') && s[key] === true) {
+                reports.push(key.substring(2)); // Remove 'r_' prefix
+            }
+        }
+        return reports;
+    } // remove : if (s['r_placement'] === true) reports.push('placement');
+
+    function getDataForReport(r, u, s) {
+        Logger.log('#\nGetting data for ' + r);
+        // pass to cleanData the column to sort by
+        switch (r) {
+            case 'productTitles':
+                return getDataFromSheet(s, u, 'pTitle', 'A:F', 3); // sort by cost
+            case 'landingPages':
+                return getDataFromSheet(s, u, 'paths', 'A:L', 1); // sort by impr & limit to 200 rows
+            case 'changeHistory':
+                return getDataFromSheet(s, u, 'changeData', 'B:K', -1); // limit to 200 rows, no sorting
+            case 'searchCategories':
+                return getDataFromSheet(s, u, 'Categories', 'C4:J', 0);
+            case 'productMatrix':
+                return getDataFromSheet(s, u, 'Title', 'L2:T10', 0); // Product Matrix
+            case 'nGrams':
+                return getDataFromSheet(s, u, 'tNgrams', 'A1:K', 1); // product title nGrams - already sorted by cost
+            case 'nGramsSearch':
+                return getDataFromSheet(s, u, 'sNgrams', 'A:I', 1); // search category Ngrams - already sorted by impr
+            case 'asset':
+                return getDataFromSheet(s, u, 'asset', 'B:P', 6); // sort by cost (col H as A not imported)
+            case 'myData':
+                return getMyData();
+            default:
+                Logger.log('Invalid report name');
+                return null;
+        }
+        //case 'placement':
+        //    return getDataFromSheet(s, u, 'placement', 'A:F', 2); // sort by impr & limit to 200 rows
+    }
+
+    function getDataFromSheet(s, aiSheet, tabName, range, col) {
+        try {
+            let sheet = safeOpenAndShareSpreadsheet(aiSheet).getSheetByName(tabName);
+            if (!sheet) {
+                throw new Error(`Sheet ${tabName} not found in the spreadsheet.`);
+            }
+
+            let data = sheet.getRange(range).getValues().filter(row => row.some(cell => !!cell));
+            if (data.length === 0 || data.length === 1) {
+                throw new Error(`No data available for this report.`);
+            }
+
+            // Apply sorting and limiting logic based on col: 0 - all data; -1 limit to maxResults no sorting; else sort by col num & limit to maxResults
+            if (col === 0) {
+                data = data;
+            } else if (col === -1) {
+                data = data.slice(0, s.maxResults + 1); // account for header row
+            } else {
+                data = data.sort((a, b) => {
+                    let valA = parseFloat(a[col]), valB = parseFloat(b[col]);
+                    return valB - valA; // Sorting in descending order
+                }).slice(0, s.maxResults + 1);
+            }
+
+            // Format data to string
+            let formattedData = data.map(row => {
+                return row.map(cell => {
+                    return !isNaN(Number(cell)) ? Number(cell).toFixed(2) : cell;
+                }).join(',');
+            }).join('\n');
+            return formattedData;
+        } catch (error) {
+            Logger.log(`Error in getting data from ${tabName} tab: ${error}`);
+            return "No data available for this report.";
+        }
+    }
+
+    function getMyData() {
+        try {
+            let sheet = safeOpenAndShareSpreadsheet(SHEET_URL).getSheetByName('myData');
+            let lastRow = sheet.getLastRow();
+            let lastColumn = sheet.getLastColumn();
+            let range = sheet.getRange(1, 1, lastRow, lastColumn);
+            let values = range.getValues();
+            let filteredData = values.filter(row => row.some(cell => !!cell));
+            let formattedData = filteredData.map(row => {
+                return row.map(cell => {
+                    if (!isNaN(Number(cell))) {
+                        return Number(cell).toFixed(2);
+                    } else {
+                        return cell;
+                    }
+                }).join(',');
+            }).join('\n');
+            return formattedData;
+        } catch (error) {
+            Logger.log(`Error in fetching data from myData tab: ${error}`);
+            return null;
+        }
+    }
+
+    function textToSpeechOpenAI(text, report, aiSet) {
+        Logger.log('Converting audio version of report');
+
+        // check if no data & if that's the case, return early with message
+        if (text === "No data available for this report.") {
+            return text;
+        }
+
+        if (text.length > 4000) {
+            Logger.log('Output is too long to use for Whisperer - proceeding with just the first 4000 characters');
+        }
+        text = text.length > 4000 ? text.substring(0, 4000) : text;
+
+        let apiUrl = 'https://api.openai.com/v1/audio/speech'; // Endpoint for OpenAI TTS
+
+        let payload = JSON.stringify({
+            model: "tts-1",
+            voice: aiSet.voice,
+            input: text
+        });
+
+        let options = {
+            method: 'post',
+            contentType: 'application/json',
+            payload: payload,
+            headers: {
+                'Authorization': 'Bearer ' + aiSet.apiKey
+            },
+            muteHttpExceptions: true // To handle HTTP errors gracefully
+        };
+
+        // Make the API request
+        let response = UrlFetchApp.fetch(apiUrl, options);
+
+        let contentType = response.getHeaders()['Content-Type'];
+
+        if (contentType.includes('audio/mpeg')) {
+            try {
+                // Attempt to access the folder by ID
+                let f = DriveApp.getFolderById(aiSet.folder);
+
+                // If successful, proceed with saving the file
+                let blob = response.getBlob();
+                // Create short timestamp for file name
+                let timeStamp = Utilities.formatDate(new Date(), aiSet.timezone, "MMMdd_HHmm");
+                let fileInFolder = f.createFile(blob.setName(report + ' ' + timeStamp + ".mp3"));
+                let fileUrl = fileInFolder.getUrl();
+                Logger.log('Audio file saved in folder: ' + fileUrl);
+
+                return fileUrl;
+            } catch (e) {
+                // Handle the case where the folder does not exist
+                Logger.log('Couldn\'t save audio file. Folder does not exist or access denied. Folder ID: ' + aiSet.folder);
+                return null;
+            }
+        } else {
+            // Handle unexpected content types
+            Logger.log('OpenAI Text-To-Speech is having issues right now, please try again later!');
+        }
+    }
+
+    function getPrompt(report, data, aiSet) {
+        if (data === "No data available for this report.") {
+            return data;
+        }
+
+        let promptRangeName = 'p_' + report;
+        let useExpertPrompt = aiSet['use_' + report];
+        let expertPromptRangeName = 'e_' + report;
+
+        let prompt;
+        try {
+            let aiSheet = safeOpenAndShareSpreadsheet(aiSet.whispererUrl);
+
+            // Get the original prompt
+            let promptRange = aiSheet.getRangeByName(promptRangeName);
+            if (!promptRange) {
+                throw new Error(`Named range ${promptRangeName} not found`);
+            }
+            prompt = promptRange.getValue();
+
+            // Check for expert prompt
+            if (aiSet.expertMode && useExpertPrompt) {
+                let expertPromptRange = aiSheet.getRangeByName(expertPromptRangeName);
+                if (expertPromptRange) {
+                    let expertPrompt = expertPromptRange.getValue();
+                    if (expertPrompt && expertPrompt.trim() !== '') {
+                        Logger.log(`As requested, using expert prompt for ${report}`);
+                        prompt = expertPrompt;
+                        // Update original prompt and clear expert prompt
+                        promptRange.setValue(expertPrompt);
+                        expertPromptRange.clearContent();
+                        aiSheet.getRangeByName('use_' + report).setValue(false);
+                        aiSet['use_' + report] = false;
+                    }
+                }
+            }
+        } catch (error) {
+            Logger.log(`Error retrieving prompt for ${report}: ${error.message}`);
+            prompt = "Please analyze the provided data and give insights.";
+        }
+
+        let suffix = `
+        You are an expert at analyzing google ads data & providing actionable insights.
+        Give all answers in the ${aiSet.lang} language. Do not use any currency symbols or currency conversion.
+        Just output the numbers in the way they are. Do not round them. Provide text output, no charts.
+        `;
+
+        let usage = aiSet.whoFor === 'internal use' ? aiSet['p_internal'] : aiSet['p_client'];
+
+        return { prompt, suffix, usage };
+    }
+
+    function logAI(ss, r, dur, aiSet) {
+        let reportCost = parseFloat(aiSet.cost) + (aiSet.expertMode ? parseFloat(aiSet.expertCost) : 0);
+        aiSet.totalCost += reportCost;
+        let logMessage = `${r} report created in: ${dur.toFixed(0)} seconds, using ${aiSet.modelOut}, at a cost of ${aiSet.cost}`;
+        logMessage += aiSet.expertMode ? ` plus ${aiSet.expertCost} for expert mode` : '';
+        Logger.log(logMessage);
+        let newRow = [new Date(), dur, r, aiSet.lang, aiSet.useVoice, aiSet.voice, aiSet.useEmail, aiSet.llm, aiSet.modelOut, reportCost, aiSet.ident];
+        try {
+            let logUrl = ss.getRangeByName('u').getValue();
+            [safeOpenAndShareSpreadsheet(logUrl), ss].map(s => s.getSheetByName('log')).forEach(sheet => sheet.appendRow(newRow));
+        } catch (e) {
+            Logger.log('Error logging to log sheet: ' + e);
+        }
+    }
+
+    function sendEmail(e, r, o, useVoice, audioUrl) {
+        // check if no data present & exit early with message if that's the case
+        if (o === "No data available for this report.") {
+            return o;
+        }
+        let subject = 'Insights Created using the PMax Whisperer Script';
+        let body = 'Hey<br>Your ' + r + ' insights are ready.<br>'
+        if (useVoice === true && audioUrl) {
+            let fileName = audioUrl.split('/').pop();
+            body += '<br>Audio file: <a href="' + audioUrl + '">' + fileName + '</a>';
+        }
+        body += '\n' + o;
+
+        // Sending the email
+        try {
+            if (e && e.includes('@')) {
+                MailApp.sendEmail({
+                    to: e,
+                    subject: subject,
+                    htmlBody: body
+                });
+                Logger.log('Email sent to: ' + e);
+            } else {
+                Logger.log('Invalid email address: ' + e);
+            }
+        }
+        catch (e) {
+            Logger.log('Error sending email: ' + e);
+        }
+    }
+
+    function calculateCost(inputTokens, outputTokens, model) {
+        const PRICING = {
+            'gpt-3.5-turbo': { inputCostPerMToken: 0.5, outputCostPerMToken: 1.5 }, // not used
+            'gpt-4-turbo': { inputCostPerMToken: 10, outputCostPerMToken: 30 }, // not used
+            'gpt-4o-mini': { inputCostPerMToken: 0.15, outputCostPerMToken: 0.6 },
+            'gpt-4o': { inputCostPerMToken: 5, outputCostPerMToken: 15 },
+            'gpt-4o-2024-08-06': { inputCostPerMToken: 2.5, outputCostPerMToken: 10 }, // updated aug 9 2024
+            'claude-3-haiku-20240307': { inputCostPerMToken: 0.25, outputCostPerMToken: 1.25 }, 
+            'claude-3-5-sonnet-20240620': { inputCostPerMToken: 3, outputCostPerMToken: 15 },
+            'claude-3-opus-20240229': { inputCostPerMToken: 15, outputCostPerMToken: 75 },
+            'gemini-1.5-pro': { inputCostPerMToken: 3.5, outputCostPerMToken: 10.5 },
+            'gemini-1.5-flash': { inputCostPerMToken: 0.35, outputCostPerMToken: 1.05
+            }
+        };
+        // Directly access pricing for the model
+        let modelPricing = PRICING[model] || { inputCostPerMToken: 1, outputCostPerMToken: 10 };
+        if (!PRICING[model]) {
+            Logger.log(`Default pricing of $1/m input and $10/m output used as no pricing found for model: ${model}`);
+        }
+
+        let inputCost  = inputTokens * (modelPricing.inputCostPerMToken / 1e6);
+        let outputCost = outputTokens * (modelPricing.outputCostPerMToken / 1e6);
+        let totalCost  = inputCost + outputCost;
+
+        return totalCost.toFixed(2);
+    }
+
+    function safeOpenAndShareSpreadsheet(url, setAccess = false, newName = null) {
+        try {
+          if (!url) {
+            console.error(`URL is empty or undefined: ${url}`);
+            return null;
+          }
+      
+          let ss = SpreadsheetApp.openByUrl(url);
+          
+          if (newName) {
+            ss = ss.copy(newName);
+          }
+      
+          if (setAccess) {
+            let file = DriveApp.getFileById(ss.getId());
+            
+            try {
+              file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.EDIT);
+            } catch (error) {
+                Logger.log("ANYONE_WITH_LINK failed, trying DOMAIN_WITH_LINK");
+              
+              try {
+                file.setSharing(DriveApp.Access.DOMAIN_WITH_LINK, DriveApp.Permission.EDIT);
+                Logger.log("Sharing set to DOMAIN_WITH_LINK");
+              } catch (error) {
+                Logger.log("DOMAIN_WITH_LINK failed, setting to PRIVATE");
+                
+                file.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.EDIT);
+                Logger.log("Sharing set to PRIVATE");
+              }
+            }
+          } 
+          return ss;
+          
+        } catch (error) {
+          console.error(`Error opening, copying, or sharing spreadsheet: ${error.message}`);
+          return null;
+        }
+    }
+} 
+
+
+
+// Thanks for trying out the script.
+
+// To get the main pmax script head to:
+// https://PmaxScript.com/
+
+
+// PS you're awesome!
