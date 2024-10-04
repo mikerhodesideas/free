@@ -1,4 +1,4 @@
-// v1 free version of pmax daily assets (c) MikeRhodes.com.au  
+// v2 free version of pmax daily assets (c) MikeRhodes.com.au  
 
 // enter your URL here between the single quotes - copy the template sheet first : https://docs.google.com/spreadsheets/d/1BDAAHdPnPNv1MobNnnOj7ERTtxiC_eNgKZtJgzsLuQY/copy
 const SHEET_URL = '';
@@ -38,6 +38,7 @@ function main() {
 
         let finalAssetData = combineAssetData(assetData, pmaxAssets, assetPerformance);
         writeDataToSheet(ss, finalAssetData);
+        addNamedRanges(ss, 'dataDaily', 'daily');
 
         setInitialCampValues(ss);
 
@@ -374,6 +375,50 @@ function setNamedRangeValue(ss, rangeName, value) {
     Logger.log(`Set ${rangeName} to value: ${value}`);
 }
 
+function addNamedRanges(ss, tabName, periodName) {
+    const sheet = ss.getSheetByName(tabName);
+    if (!sheet) {
+        Logger.log(`Sheet ${tabName} not found. Skipping.`);
+        return;
+    }
+
+    const timePeriod = periodName.toLowerCase();
+
+    // Create or update named ranges using full column references
+    updateNamedRange(sheet, `allDates${timePeriod}`, 'A:A');
+    updateNamedRange(sheet, `name${timePeriod}`, 'B:B');
+    updateNamedRange(sheet, `type${timePeriod}`, 'C:C');
+    updateNamedRange(sheet, `content${timePeriod}`, 'D:D');
+    updateNamedRange(sheet, `campaign${timePeriod}`, 'E:E');
+    updateNamedRange(sheet, `impr${timePeriod}`, 'F:F');
+    updateNamedRange(sheet, `clicks${timePeriod}`, 'G:G');
+    updateNamedRange(sheet, `cost${timePeriod}`, 'H:H');
+    updateNamedRange(sheet, `conv${timePeriod}`, 'I:I');
+    updateNamedRange(sheet, `sub${timePeriod}`, 'L:L');
+    updateNamedRange(sheet, `assetID${timePeriod}`, 'N:N');
+
+    Logger.log(`Named ranges updated for ${tabName}`);
+}
+
+function updateNamedRange(sheet, rangeName, rangeA1Notation) {
+    const ss = sheet.getParent();
+    const range = sheet.getRange(rangeA1Notation);
+    
+    try {
+        // Try to update the existing named range
+        ss.setNamedRange(rangeName, range);
+    } catch (e) {
+        // If the named range doesn't exist, create a new one
+        if (e.message.includes("Named range does not exist")) {
+            ss.setNamedRange(rangeName, range);
+            Logger.log(`Created new named range: ${rangeName}`);
+        } else {
+            // If there's a different error, log it
+            Logger.log(`Error updating named range ${rangeName}: ${e.message}`);
+        }
+    }
+}
+
 function writeDataToSheet(ss, finalAssetData) {
     let tabName = 'dataDaily';
     Logger.log(`Writing data to ${tabName}`);
@@ -446,3 +491,8 @@ function writeDataToSheet(ss, finalAssetData) {
         Logger.log(`No data to write to sheet ${tabName}.`);
     }
 }
+
+// thanks for using this free script
+// you can get the paid version here https://mikerhodes.circle.so/checkout/pmax-asset-charting-script
+
+// ps you're awesome
