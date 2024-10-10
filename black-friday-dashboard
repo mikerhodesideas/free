@@ -1,0 +1,1301 @@
+// v20 - black friday dashboard
+// All you need to do is create a copy of this template & then add YOUR url to the SHEET_URL variable below
+// The template to copy is: https://docs.google.com/spreadsheets/d/1KG2F4-sSN4i7Rv4FnISGF8n_VkRGsfcAnMkr7UedH48/copy
+
+const SHEET_URL = ''
+
+
+function main() {
+    let template = 'https://docs.google.com/spreadsheets/d/1KG2F4-sSN4i7Rv4FnISGF8n_VkRGsfcAnMkr7UedH48/';
+    let sheetUrl = setupSheetUrl(template);
+    Logger.log("Starting Enhanced Google Ads Analysis Script");
+    const numProd = 500;
+    const dateRanges = createDateRanges();
+    const elements = defineElements();
+    const queries = buildQueries(elements, numProd);
+    const queryResults = executeQueries(queries, dateRanges);
+    let analysisData = initializeDataStructure();
+
+    const compareYearsFunctions = [
+        analyzeTopProducts,
+    ];
+    const singleYearFunctions = [
+        findHighestCpcKeyword,
+        findHighestCpcSearchTerm,
+        analyzeMatchTypes,
+        analyzeOneWordNgrams,
+        countAccountRelatedActions,
+        analyzeProductInsights,
+        countNegativesAndLists,
+    ];
+    const dailyDataFunctions = [
+        analyzeDailyCampaignData,
+        analyzeChannelTypeSpend,
+        analyzePMaxSubChannelSpend,
+    ];
+
+    compareYearsFunctions.forEach(func => timeFunction(func)(analysisData, queryResults));
+    singleYearFunctions.forEach(func => timeFunction(func)(analysisData, queryResults.year1));
+    dailyDataFunctions.forEach(func => timeFunction(func)(analysisData, queryResults));
+
+    timeFunction(writeDashboard)(analysisData, sheetUrl, 'dashboard');
+    timeFunction(writeProductDashboard)(analysisData, sheetUrl);
+    timeFunction(writeDailyCampaign)(analysisData, sheetUrl, 'rCamp');
+    timeFunction(writeDailyAllCampaign)(analysisData, sheetUrl, 'rAll');
+    timeFunction(writeDailyChannel)(analysisData, sheetUrl, 'rChannel');
+    timeFunction(writeDailySubChannel)(analysisData, sheetUrl, 'rSub');
+    timeFunction(setUserCampMetrics)(sheetUrl);
+    
+    Logger.log(`Enhanced Google Ads Analysis Script Completed.`);
+}
+
+//#region Helper Functions
+const AdvertisingChannelType = {
+    PERFORMANCE_MAX: 'PERFORMANCE_MAX',
+    SEARCH: 'SEARCH',
+    SHOPPING: 'SHOPPING',
+    DEMAND_GEN: 'DEMAND_GEN',
+    DISPLAY: 'DISPLAY',
+    VIDEO: 'VIDEO',
+    LOCAL: 'LOCAL',
+    LOCAL_SERVICES: 'LOCAL_SERVICES',
+    HOTEL: 'HOTEL',
+    UNKNOWN: 'UNKNOWN'
+};
+
+function setupSheetUrl(template) {
+    try {
+        if (typeof SHEET_URL === 'undefined' || SHEET_URL === '') {
+            Logger.log(`No SHEET_URL provided. Creating a copy of the template.`);
+            let templateSheet = SpreadsheetApp.openByUrl(template);
+            let newSheet = templateSheet.copy(`Google Ads Black Friday Dashboard - MikeRhodes.com.au © `);
+            let newSheetUrl = newSheet.getUrl();
+            Logger.log(`New sheet created. URL: ${newSheetUrl}`);
+            return newSheetUrl;
+        } else {
+            Logger.log(`Using provided SHEET_URL: ${SHEET_URL}`);
+            return SHEET_URL;
+        }
+    } catch (error) {
+        Logger.log(`Error in setupSheetUrl: ${error.message}`);
+        throw new Error(`Failed to setup sheet URL. Please check your permissions and try again.`);
+    }
+}
+
+function timeFunction(func) {
+    return function (...args) {
+        let start = new Date().getTime();
+        let result = func.apply(this, args);
+        let end = new Date().getTime();
+        let duration = ((end - start) / 1000).toFixed(1);
+        Logger.log(`Function ${func.name} took ${duration}s to execute.`);
+        return result;
+    }
+}
+
+function createDateRanges() {
+    let timezone = AdsApp.currentAccount().getTimeZone();
+
+    function formatDateRange(start, end) {
+        return `BETWEEN ${Utilities.formatDate(new Date(start), timezone, "yyyyMMdd")} AND ${Utilities.formatDate(new Date(end), timezone, "yyyyMMdd")}`;
+    }
+
+    const blackFriday2024 = new Date('2024-11-29');
+    const blackFriday2023 = new Date('2023-11-24');
+    const startDate2024 = new Date('2024-09-20');
+    const endDate2024 = new Date('2024-12-13');
+    const startDate2023 = new Date('2023-09-15');
+    const endDate2023 = new Date('2023-12-08');
+
+    return {
+        year1: formatDateRange(startDate2024, endDate2024),
+        year2: formatDateRange(startDate2023, endDate2023)
+    };
+}
+
+function executeQueries(queries, dateRanges) {
+    console.log(`Executing queries`);
+    let results = {
+        year1: {},
+        year2: {},
+        last7: {}
+    };
+
+    for (let queryName in queries) {
+        if (queryName === 'accountActions') {
+            // Special handling for accountActions - only looks at last 7 days
+            results.last7[queryName] = AdsApp.search(queries[queryName]());
+        } else if (queryName === 'dailyChannelTypeSpend') {
+            // Special handling for dailyChannelTypeSpend - only for year1
+            results.year1[queryName] = AdsApp.search(queries[queryName](dateRanges.year1));
+        } else {
+            // Regular handling for year-based queries
+            results.year1[queryName] = AdsApp.search(queries[queryName](dateRanges.year1));
+            results.year2[queryName] = AdsApp.search(queries[queryName](dateRanges.year2));
+        }
+    }
+
+    return results;
+}
+
+function initializeDataStructure() {
+    return {
+        topProducts: { year1: [], year2: [] },
+        channelTypeSpend: {
+            year1: { ACCOUNT_TOTAL: { cost: 0, conversions: 0 }, CHANNEL_BREAKDOWN: {} },
+            year2: { ACCOUNT_TOTAL: { cost: 0, conversions: 0 }, CHANNEL_BREAKDOWN: {} }
+        },
+        pMaxSubChannelSpend: {
+            year1: {
+                TOTAL: { cost: 0, conversions: 0 },
+                DISPLAY: { cost: 0, conversions: 0 },
+                VIDEO: { cost: 0, conversions: 0 },
+                SHOPPING: { cost: 0, conversions: 0 },
+                'SEARCH/OTHER': { cost: 0, conversions: 0 }
+            },
+            year2: {
+                TOTAL: { cost: 0, conversions: 0 },
+                DISPLAY: { cost: 0, conversions: 0 },
+                VIDEO: { cost: 0, conversions: 0 },
+                SHOPPING: { cost: 0, conversions: 0 },
+                'SEARCH/OTHER': { cost: 0, conversions: 0 }
+            }
+        },
+        dailyCampaignData: { year1: [], year2: [] },
+        highestCpcKeyword: null,
+        highestCpcSearchTerm: null,
+        matchTypeData: {},
+        oneWordNgrams: {},
+        accountActions: {},
+        productInsights: {},
+        negativeKeywordsAndLists: {}
+    };
+}
+
+function defineElements() {
+    return {
+        impr: ' metrics.impressions ',
+        clicks: ' metrics.clicks ',
+        cost: ' metrics.cost_micros ',
+        conv: ' metrics.conversions ',
+        value: ' metrics.conversions_value ',
+        allConv: ' metrics.all_conversions ',
+        allConvValue: ' metrics.all_conversions_value ',
+        convDate: ' metrics.conversions_by_conversion_date ',
+        convValueDate: ' metrics.conversions_value_by_conversion_date ',
+        avgCpc: ' metrics.average_cpc ',
+        views: ' metrics.video_views ',
+        cpv: ' metrics.average_cpv ',
+        searchIS: ' metrics.search_impression_share ',
+        searchBudgetIS: ' metrics.search_budget_lost_impression_share ',
+        searchRankIS: ' metrics.search_rank_lost_impression_share ',
+        segYear: ' segments.year ',
+        segDate: ' segments.date ',
+        prodChannel: ' segments.product_channel ',
+        prodId: ' segments.product_item_id ',
+        prodTitle: ' segments.product_title ',
+        convActionName: ' segments.conversion_action_name ',
+        convActionCat: ' segments.conversion_action_category ',
+        campName: ' campaign.name ',
+        campId: ' campaign.id ',
+        campBudget: ' campaign.campaign_budget ',
+        chType: ' campaign.advertising_channel_type ',
+        adType: ' ad_group_ad.ad.type ',
+        keywordText: ' ad_group_criterion.keyword.text ',
+        keywordMatchType: ' ad_group_criterion.keyword.match_type ',
+        searchTerm: ' search_term_view.search_term ',
+        userEmail: ' change_event.user_email ',
+        chgDateTime: ' change_event.change_date_time ',
+        assetGroupAsset: ' asset_group_asset.asset ',
+        assetGroupFieldType: ' asset_group_asset.field_type ',
+        assetInteractionTarget: ' segments.asset_interaction_target.asset ',
+        interactionOnAsset: ' segments.asset_interaction_target.interaction_on_this_asset ',
+        last30: ' WHERE segments.date DURING LAST_30_DAYS ',
+        last7: ' WHERE change_event.change_date_time DURING LAST_7_DAYS ',
+        pMaxOnly: ' AND campaign.advertising_channel_type = "PERFORMANCE_MAX" ',
+        pMaxOnlyNoAnd: ' campaign.advertising_channel_type = "PERFORMANCE_MAX" ',
+        impr0: ' AND metrics.impressions > 0 ',
+        order: ' ORDER BY ',
+        desc: ' DESC ',
+    };
+}
+
+function buildQueries(e, numProd) {
+    let queries = {};
+
+    queries.topProducts = (dateRange) => `
+        SELECT ${[e.prodId, e.prodTitle, e.impr, e.clicks, e.cost, e.conv, e.value].join(',')}
+        FROM shopping_performance_view WHERE segments.date ${dateRange} ${e.order} ${e.cost} ${e.desc} LIMIT ${numProd}`;
+
+    queries.dailyCampaignData = (dateRange) => `
+        SELECT ${[e.segDate, e.campName, e.chType, e.impr, e.clicks, e.cost, e.conv, e.value, e.views, e.convDate, e.convValueDate, e.allConv, e.allConvValue].join(',')}
+        FROM campaign WHERE segments.date ${dateRange} ${e.impr0}`;
+
+    queries.highestCpcKeyword = (dateRange) => `
+        SELECT ${[e.keywordText, e.avgCpc].join(',')}
+        FROM keyword_view WHERE segments.date ${dateRange} ${e.impr0} ${e.order} ${e.avgCpc} ${e.desc} LIMIT 1`;
+
+    queries.highestCpcSearchTerm = (dateRange) => `
+        SELECT ${[e.searchTerm, e.avgCpc].join(',')}
+        FROM search_term_view WHERE segments.date ${dateRange} ${e.impr0} ${e.order} ${e.avgCpc} ${e.desc} LIMIT 1`;
+
+    queries.matchTypes = (dateRange) => `
+        SELECT ${[e.keywordMatchType, e.impr, e.clicks, e.cost, e.conv, e.value].join(',')}
+        FROM keyword_view WHERE segments.date ${dateRange}`;
+
+    queries.searchTerms = (dateRange) => `
+        SELECT ${[e.searchTerm, e.impr, e.clicks, e.cost, e.conv, e.value].join(',')}
+        FROM search_term_view WHERE segments.date ${dateRange} ${e.impr0}`;
+
+    queries.keywords = (dateRange) => `
+        SELECT ${e.keywordText}
+        FROM keyword_view WHERE segments.date ${dateRange} ${e.impr0}`;
+
+    queries.channelTypeSpend = (dateRange) => `
+        SELECT ${[e.chType, e.impr, e.cost, e.conv, e.value].join(',')}
+        FROM campaign WHERE segments.date ${dateRange}`;
+
+    queries.dailyChannelTypeSpend = (dateRange) => `
+        SELECT ${[e.segDate, e.chType, e.impr, e.cost, e.conv, e.value].join(',')}
+        FROM campaign WHERE segments.date ${dateRange}`;
+
+    queries.productInsights = (dateRange) => `
+        SELECT ${[e.segDate, e.prodTitle, e.prodId, e.cost, e.conv, e.value, e.impr, e.clicks].join(',')}
+        FROM shopping_performance_view WHERE segments.date ${dateRange}`;
+
+    queries.pMaxTotalSpend = (dateRange) => `
+        SELECT ${[e.segDate, e.impr, e.cost, e.conv, e.value].join(',')}
+        FROM campaign WHERE segments.date ${dateRange} ${e.pMaxOnly}`;
+
+    queries.pMaxAssetTypes = (dateRange) => `
+        SELECT ${[e.assetGroupAsset, e.assetGroupFieldType].join(',')}
+        FROM asset_group_asset WHERE ${e.pMaxOnlyNoAnd}`;
+
+    queries.pMaxAssetPerformance = (dateRange) => `
+        SELECT ${[e.assetInteractionTarget, e.interactionOnAsset, e.segDate, e.impr, e.cost, e.conv, e.value].join(',')}
+        FROM campaign WHERE segments.date ${dateRange} ${e.pMaxOnly}`;
+
+    queries.shoppingPerformance = (dateRange) => `
+        SELECT ${[e.segDate, e.impr, e.cost, e.conv, e.value].join(',')}
+        FROM shopping_performance_view WHERE segments.date ${dateRange}`;
+
+    queries.productInsights = (dateRange) => `
+        SELECT ${[e.prodTitle, e.prodId, e.cost, e.conv, e.value, e.impr, e.clicks].join(',')}
+        FROM shopping_performance_view WHERE segments.date ${dateRange}`;
+
+    // Special case for accountActions using last 7 days
+    queries.accountActions = () => `
+        SELECT ${e.userEmail} FROM change_event ${e.last7} LIMIT 9999`;
+
+    return queries;
+}
+//#endregion
+
+//#region - compare years 
+function analyzeTopProducts(analysisData, queryResults) {
+    analysisData.topProducts = { year1: [], year2: [] };
+
+    ['year1', 'year2'].forEach(year => {
+        if (!queryResults[year] || !queryResults[year].topProducts) {
+            console.log(`No top products data available for ${year}`);
+            return;
+        }
+
+        const results = queryResults[year].topProducts;
+        const products = [];
+
+        // Convert iterator to array
+        while (results.hasNext()) {
+            products.push(results.next());
+        }
+
+        analysisData.topProducts[year] = products.map(row => [
+            row.segments.productTitle || 'N/A',
+            parseInt(row.metrics.impressions) || 0,
+            parseInt(row.metrics.clicks) || 0,
+            parseFloat(row.metrics.costMicros) / 1000000 || 0,
+            parseFloat(row.metrics.conversions) || 0,
+            parseFloat(row.metrics.conversionsValue) || 0
+        ]);
+    });
+}
+//#endregion
+
+//#region - single year
+function findHighestCpcKeyword(analysisData, queryResults) {
+    const result = queryResults.highestCpcKeyword;
+
+    if (result.hasNext()) {
+        const row = result.next();
+        analysisData.highestCpcKeyword = {
+            keyword: row.adGroupCriterion.keyword.text,
+            cpc: parseFloat(row.metrics.averageCpc) / 1000000
+        };
+    }
+}
+
+function findHighestCpcSearchTerm(analysisData, queryResults) {
+    const result = queryResults.highestCpcSearchTerm;
+
+    if (result.hasNext()) {
+        const row = result.next();
+        analysisData.highestCpcSearchTerm = {
+            searchTerm: row.searchTermView.searchTerm,
+            cpc: parseFloat(row.metrics.averageCpc) / 1000000
+        };
+    }
+}
+
+function analyzeMatchTypes(analysisData, queryResults) {
+    const result = queryResults.matchTypes;
+    const matchTypeData = {
+        EXACT: { impressions: 0, clicks: 0, cost: 0, conversions: 0, conversionsValue: 0 },
+        PHRASE: { impressions: 0, clicks: 0, cost: 0, conversions: 0, conversionsValue: 0 },
+        BROAD: { impressions: 0, clicks: 0, cost: 0, conversions: 0, conversionsValue: 0 }
+    };
+
+    while (result.hasNext()) {
+        const row = result.next();
+        const matchType = row.adGroupCriterion.keyword.matchType;
+        if (matchType && matchTypeData[matchType]) {
+            matchTypeData[matchType].impressions += parseInt(row.metrics.impressions) || 0;
+            matchTypeData[matchType].clicks += parseInt(row.metrics.clicks) || 0;
+            matchTypeData[matchType].cost += parseFloat(row.metrics.costMicros) / 1000000 || 0;
+            matchTypeData[matchType].conversions += parseFloat(row.metrics.conversions) || 0;
+            matchTypeData[matchType].conversionsValue += parseFloat(row.metrics.conversionsValue) || 0;
+        }
+    }
+
+    analysisData.matchTypeData = matchTypeData;
+}
+
+function analyzeOneWordNgrams(analysisData, queryResults) {
+    const searchTermResult = queryResults.searchTerms;
+    const keywordResult = queryResults.keywords;
+
+    const searchTermSet = new Set();
+    const keywordSet = new Set();
+    const newWordSpend = {};
+
+    let totalImpressions = 0;
+    let totalClicks = 0;
+    let totalCost = 0;
+    let totalConversions = 0;
+    let totalConversionsValue = 0;
+
+    let searchTermCount = 0;
+    while (searchTermResult.hasNext()) {
+        const row = searchTermResult.next();
+        searchTermCount++;
+        const searchTerm = row.searchTermView.searchTerm;
+        if (searchTerm) {
+            const words = searchTerm.toLowerCase().split(/\s+/);
+            words.forEach(word => {
+                searchTermSet.add(word);
+                if (!newWordSpend[word]) {
+                    newWordSpend[word] = 0;
+                }
+                newWordSpend[word] += parseFloat(row.metrics.costMicros) / 1000000;
+            });
+        }
+
+        totalImpressions += parseInt(row.metrics.impressions);
+        totalClicks += parseInt(row.metrics.clicks);
+        totalCost += parseFloat(row.metrics.costMicros) / 1000000;
+        totalConversions += parseFloat(row.metrics.conversions);
+        totalConversionsValue += parseFloat(row.metrics.conversionsValue);
+    }
+
+    let keywordCount = 0;
+    while (keywordResult.hasNext()) {
+        const row = keywordResult.next();
+        keywordCount++;
+        const keyword = row.adGroupCriterion.keyword.text;
+        if (keyword) {
+            const words = keyword.toLowerCase().split(/\s+/);
+            words.forEach(word => keywordSet.add(word));
+        }
+    }
+
+    const missingNgrams = [...searchTermSet].filter(term => !keywordSet.has(term));
+    const numberOfNewWords = missingNgrams.length;
+
+    let highestSpendWord = '';
+    let highestSpend = 0;
+    missingNgrams.forEach(word => {
+        if (newWordSpend[word] > highestSpend) {
+            highestSpend = newWordSpend[word];
+            highestSpendWord = word;
+        }
+    });
+
+    analysisData.oneWordNgrams = {
+        searchTermCount: searchTermCount,
+        keywordCount: keywordCount,
+        uniqueSearchTermWords: searchTermSet.size,
+        uniqueKeywordWords: keywordSet.size,
+        numberOfNewWords: numberOfNewWords,
+        sampleMissingNgrams: missingNgrams.slice(0, 10),
+        totalImpressions: totalImpressions,
+        totalClicks: totalClicks,
+        totalCost: totalCost,
+        totalConversions: totalConversions,
+        totalConversionsValue: totalConversionsValue,
+        highestSpendWord: highestSpendWord,
+        highestSpend: highestSpend
+    };
+}
+
+function countAccountRelatedActions(analysisData, queryResults) {
+    analysisData.accountActions = {
+        bulkActions: 0,
+        message: ''
+    };
+
+    try {
+        if (!queryResults.accountActions) {
+            analysisData.accountActions.message = 'No account actions data available.';
+            return;
+        }
+
+        const result = queryResults.accountActions;
+        let count = 0;
+        let hasResults = false;
+
+        while (result.hasNext()) {
+            hasResults = true;
+            const row = result.next();
+            if (row['change_event.user_email'] === 'Bulk Actions') {
+                count++;
+            }
+        }
+
+        if (!hasResults) {
+            analysisData.accountActions.message = 'No account actions found in the query results.';
+        } else {
+            analysisData.accountActions.bulkActions = count;
+            analysisData.accountActions.message = `Found ${count} bulk actions.`;
+        }
+    } catch (error) {
+        analysisData.accountActions.message = `Error processing account actions: ${error.message}`;
+        console.error('Error in countAccountRelatedActions:', error);
+    }
+}
+
+function analyzeProductInsights(analysisData, queryResults) {
+    console.time('Product Insights Analysis');
+
+    const result = queryResults.productInsights;
+
+    let totalProducts = 0;
+    let productsWithSpend = 0;
+    let productsWithConversions = 0;
+
+    while (result.hasNext()) {
+        const row = result.next();
+        totalProducts++;
+
+        if (parseFloat(row.metrics.costMicros) > 0) productsWithSpend++;
+        if (parseFloat(row.metrics.conversions) > 0) productsWithConversions++;
+    }
+
+    analysisData.productInsights = {
+        totalProducts,
+        productsWithSpend,
+        productsWithConversions
+    };
+}
+
+function countNegativesAndLists(analysisData) {
+    let campaignNegativesCount = 0;
+    let adGroupNegativesCount = 0;
+    let negativeListsCount = 0;
+    let totalNegativesInLists = 0;
+
+    const campaignNegativeQuery = `
+    SELECT campaign_criterion.keyword.text
+    FROM campaign_criterion
+    WHERE campaign_criterion.negative = TRUE AND
+          campaign_criterion.type = KEYWORD AND
+          campaign.status != "REMOVED" AND
+          campaign_criterion.status = "ENABLED"
+    `;
+    const campaignNegativeIterator = AdsApp.search(campaignNegativeQuery);
+    campaignNegativesCount = campaignNegativeIterator.totalNumEntities();
+
+    const adGroupNegativeQuery = `
+    SELECT ad_group_criterion.keyword.text
+    FROM ad_group_criterion
+    WHERE ad_group_criterion.negative = TRUE AND
+          ad_group_criterion.type = KEYWORD AND
+          ad_group.status != "REMOVED" AND
+          ad_group_criterion.status = "ENABLED"
+    `;
+    const adGroupNegativeIterator = AdsApp.search(adGroupNegativeQuery);
+    adGroupNegativesCount = adGroupNegativeIterator.totalNumEntities();
+
+    const negativeKeywordListsIterator = AdsApp.negativeKeywordLists().get();
+    while (negativeKeywordListsIterator.hasNext()) {
+        const list = negativeKeywordListsIterator.next();
+        const campaignsIterator = list.campaigns().withCondition("campaign.status != 'REMOVED'").get();
+
+        if (campaignsIterator.totalNumEntities() > 0) {
+            negativeListsCount++;
+            const keywordsIterator = list.negativeKeywords().get();
+            totalNegativesInLists += keywordsIterator.totalNumEntities();
+        }
+    }
+
+    analysisData.negativeKeywordsAndLists = {
+        campaignNegativesCount: campaignNegativesCount,
+        adGroupNegativesCount: adGroupNegativesCount,
+        negativeListsCount: negativeListsCount,
+        totalNegativesInLists: totalNegativesInLists
+    };
+}
+//#endregion
+
+//#region daily campaign data
+const METRICS = {
+
+    'Impr': { type: 'number', source: 'impressions' },
+    'Clicks': { type: 'number', source: 'clicks' },
+    'Cost': { type: 'micros', source: 'costMicros' },
+    'Conv': { type: 'decimal1', source: 'conversions' },
+    'Conv Val': { type: 'number', source: 'conversionsValue' },
+    'All Conv': { type: 'decimal1', source: 'allConversions' },
+    'All Conv Val': { type: 'number', source: 'allConversionsValue' },
+    'Conv Date': { type: 'decimal1', source: 'conversionsByConversionDate' },
+    'Conv Val Date': { type: 'number', source: 'conversionsValueByConversionDate' },
+    'Views': { type: 'number', source: 'videoViews' },
+    'CPC': { type: 'currency', calc: (m) => m.Cost / m.Clicks },
+    'CTR': { type: 'percentage', calc: (m) => m.Clicks / m.Impr * 100 },
+    'CPA': { type: 'currency', calc: (m) => m.Cost / m.Conv },
+    'CvR': { type: 'percentage', calc: (m) => m.Conv / m.Clicks * 100 },
+    'ROAS': { type: 'decimal1', calc: (m) => m['Conv Val'] / m.Cost },
+    'AOV': { type: 'number', calc: (m) => m['Conv Val'] / m.Conv },
+    'Keyword': { type: 'text' },
+    'keyword': { type: 'text' },
+    'Search Term': { type: 'text' },
+    'searchterm': { type: 'text' },
+    'searchTerm': { type: 'text' },
+};
+
+function processMetrics(row) {
+    const metrics = {};
+    for (const [key, config] of Object.entries(METRICS)) {
+        if (config.source) {
+            const value = row.metrics[config.source];
+            metrics[key] = config.type === 'micros' ? parseFloat(value) / 1000000 : parseFloat(value);
+        }
+    }
+    return metrics;
+}
+
+function formatValue(value, type, metricKey = '') {
+    if (value === undefined || value === null) return '';
+    if (metricKey === 'CPA' && value === Infinity) return '0';
+
+    switch (type) {
+        case 'text':
+            return value.toString();
+        case 'micros':
+        case 'number':
+            return Number(isNaN(value) ? 0 : Math.round(value));
+        case 'currency':
+            return Number(isNaN(value) ? 0 : parseFloat(value).toFixed(2));
+        case 'decimal1':
+            return Number(isNaN(value) ? 0 : parseFloat(value).toFixed(1));
+        case 'percentage':
+            return Number(isNaN(value) ? 0 : parseFloat(value).toFixed(1)) + '%';
+        default:
+            console.log(`Unknown type: ${type}, returning original value`);
+            return value;
+    }
+}
+
+function analyzeDailyCampaignData(analysisData, queryResults) {
+    analysisData.dailyCampaignData = { year1: [], year2: [] };
+
+    ['year1', 'year2'].forEach(year => {
+        if (!queryResults[year] || !queryResults[year].dailyCampaignData) {
+            console.log(`No daily campaign data available for ${year}`);
+            return;
+        }
+
+        const yearResults = queryResults[year].dailyCampaignData;
+        const campaignData = new Map();
+        const allCampaignsData = new Map();
+
+        // Process all campaign data
+        while (yearResults.hasNext()) {
+            const row = yearResults.next();
+            const dateStr = row.segments.date;
+            const campaignName = row.campaign.name;
+            const campaignType = row.campaign.advertisingChannelType;
+            const metrics = processMetrics(row);
+
+            // Store campaign data
+            if (!campaignData.has(campaignName)) {
+                campaignData.set(campaignName, new Map());
+            }
+            campaignData.get(campaignName).set(dateStr, { ...metrics, campaignType });
+
+            // Aggregate for All Campaigns
+            if (!allCampaignsData.has(dateStr)) {
+                allCampaignsData.set(dateStr, { ...metrics, campaignType: 'All Campaigns' });
+            } else {
+                const dailyAggregate = allCampaignsData.get(dateStr);
+                for (const [key, value] of Object.entries(metrics)) {
+                    dailyAggregate[key] = (dailyAggregate[key] || 0) + value;
+                }
+            }
+        }
+
+        // Calculate derived metrics and format final data
+        const finalData = [];
+
+        // Process individual campaign data
+        for (const [campaignName, campaignMetrics] of campaignData) {
+            for (const [dateStr, metrics] of campaignMetrics) {
+                const derivedMetrics = calculateDerivedMetrics(metrics);
+                finalData.push({
+                    date: new Date(dateStr),
+                    campaign: campaignName,
+                    camptype: metrics.campaignType,
+                    ...metrics,
+                    ...derivedMetrics
+                });
+            }
+        }
+
+        // Process All Campaigns data
+        for (const [dateStr, metrics] of allCampaignsData) {
+            const derivedMetrics = calculateDerivedMetrics(metrics);
+            finalData.push({
+                date: new Date(dateStr),
+                campaign: 'All Campaigns',
+                camptype: 'All Campaigns',
+                ...metrics,
+                ...derivedMetrics
+            });
+        }
+
+        analysisData.dailyCampaignData[year] = finalData;
+    });
+}
+
+function analyzeChannelTypeSpend(analysisData, queryResults) {
+    analysisData.channelTypeSpend = {
+        year1: { ACCOUNT_TOTAL: { impressions: 0, cost: 0, conversions: 0 }, CHANNEL_BREAKDOWN: {} },
+        year2: { ACCOUNT_TOTAL: { impressions: 0, cost: 0, conversions: 0 }, CHANNEL_BREAKDOWN: {} }
+    };
+    analysisData.dailyChannelTypeSpend = [];
+
+    ['year1', 'year2'].forEach(year => {
+        if (!queryResults[year] || !queryResults[year].channelTypeSpend) {
+            console.log(`No channel type spend data available for ${year}`);
+            return;
+        }
+
+        const result = queryResults[year].channelTypeSpend;
+
+        // Process aggregated data
+        while (result.hasNext()) {
+            const row = result.next();
+            processRow(row, analysisData.channelTypeSpend[year]);
+        }
+
+        // Process daily data only for year1 (2024)
+        if (year === 'year1' && queryResults.year1.dailyChannelTypeSpend) {
+            const dailyResult = queryResults.year1.dailyChannelTypeSpend;
+            const dailyData = new Map();
+
+            while (dailyResult.hasNext()) {
+                const row = dailyResult.next();
+                const date = row.segments.date;
+                if (!dailyData.has(date)) {
+                    dailyData.set(date, {
+                        date,
+                        ACCOUNT_TOTAL: { impressions: 0, cost: 0, conversions: 0 },
+                        CHANNEL_BREAKDOWN: {}
+                    });
+                }
+                processRow(row, dailyData.get(date));
+            }
+
+            // Convert daily data to array and sort by date
+            analysisData.dailyChannelTypeSpend = Array.from(dailyData.values())
+                .sort((a, b) => a.date.localeCompare(b.date));
+        }
+    });
+
+    function processRow(row, dataObject) {
+        const channelType = row.campaign.advertisingChannelType;
+        if (!AdvertisingChannelType.hasOwnProperty(channelType)) {
+            channelType = 'UNKNOWN';
+        }
+        const impressions = parseFloat(row.metrics.impressions) || 0;
+        const cost = parseFloat(row.metrics.costMicros) / 1000000 || 0;
+        const conversions = parseFloat(row.metrics.conversions) || 0;
+        const convVal = parseFloat(row.metrics.conversionsValue) || 0;
+
+        dataObject.ACCOUNT_TOTAL.impressions += impressions;
+        dataObject.ACCOUNT_TOTAL.cost += cost;
+        dataObject.ACCOUNT_TOTAL.conversions += conversions;
+        dataObject.ACCOUNT_TOTAL['Conv Val'] += convVal;
+
+        if (!dataObject.CHANNEL_BREAKDOWN[channelType]) {
+            dataObject.CHANNEL_BREAKDOWN[channelType] = { impressions: 0, cost: 0, conversions: 0, 'Conv Val': 0 };
+        }
+        dataObject.CHANNEL_BREAKDOWN[channelType].impressions += impressions;
+        dataObject.CHANNEL_BREAKDOWN[channelType].cost += cost;
+        dataObject.CHANNEL_BREAKDOWN[channelType].conversions += conversions;
+        dataObject.CHANNEL_BREAKDOWN[channelType]['Conv Val'] += convVal;
+    }
+}
+
+function analyzePMaxSubChannelSpend(analysisData, queryResults) {
+    const subChannels = ['SHOPPING', 'VIDEO', 'DISPLAY', 'SEARCH/OTHER'];
+    const metrics = ['impressions', 'cost', 'conversions', 'convValue'];
+
+    function initializeData() {
+        return {
+            TOTAL: Object.fromEntries(metrics.map(metric => [metric, 0])),
+            ...Object.fromEntries(subChannels.map(channel => [channel, Object.fromEntries(metrics.map(metric => [metric, 0]))]))
+        };
+    }
+
+    analysisData.pMaxSubChannelSpend = initializeData();
+    analysisData.dailyPMaxSubChannelSpend = new Map();
+
+    if (!queryResults.year1) {
+        console.log('No data available for year1');
+        return;
+    }
+
+    const assetFieldTypes = new Map();
+    if (queryResults.year1.pMaxAssetTypes) {
+        while (queryResults.year1.pMaxAssetTypes.hasNext()) {
+            const row = queryResults.year1.pMaxAssetTypes.next();
+            assetFieldTypes.set(row.assetGroupAsset.asset.toString(), row.assetGroupAsset.fieldType);
+        }
+    }
+
+    function processRow(date, category, rowMetrics) {
+        if (!analysisData.dailyPMaxSubChannelSpend.has(date)) {
+            analysisData.dailyPMaxSubChannelSpend.set(date, initializeData());
+        }
+        let dayData = analysisData.dailyPMaxSubChannelSpend.get(date);
+
+        metrics.forEach(metric => {
+            dayData[category][metric] += rowMetrics[metric];
+        });
+    }
+
+    function extractMetrics(row) {
+        return {
+            impressions: parseInt(row.metrics.impressions) || 0,
+            cost: parseFloat(row.metrics.costMicros) / 1000000 || 0,
+            conversions: parseFloat(row.metrics.conversions) || 0,
+            convValue: parseFloat(row.metrics.conversionsValue) || 0
+        };
+    }
+
+    // Process PMax Total Spend
+    if (queryResults.year1.pMaxTotalSpend) {
+        while (queryResults.year1.pMaxTotalSpend.hasNext()) {
+            const row = queryResults.year1.pMaxTotalSpend.next();
+            processRow(row.segments.date, 'TOTAL', extractMetrics(row));
+        }
+    }
+
+    // Process PMax Asset Performance
+    if (queryResults.year1.pMaxAssetPerformance) {
+        while (queryResults.year1.pMaxAssetPerformance.hasNext()) {
+            const row = queryResults.year1.pMaxAssetPerformance.next();
+            if (row.segments.assetInteractionTarget.interactionOnThisAsset) continue;
+            let fieldType = assetFieldTypes.get(row.segments.assetInteractionTarget.asset.toString());
+            let category = fieldType?.includes('MARKETING') ? 'DISPLAY' : fieldType?.includes('YOUTUBE') ? 'VIDEO' : null;
+            if (category) processRow(row.segments.date, category, extractMetrics(row));
+        }
+    }
+
+    // Process Shopping Performance
+    if (queryResults.year1.shoppingPerformance) {
+        while (queryResults.year1.shoppingPerformance.hasNext()) {
+            const row = queryResults.year1.shoppingPerformance.next();
+            processRow(row.segments.date, 'SHOPPING', extractMetrics(row));
+        }
+    }
+
+    // Calculate SEARCH/OTHER and adjust subchannel allocations
+    for (let [date, dailyData] of analysisData.dailyPMaxSubChannelSpend) {
+        metrics.forEach(metric => {
+            let remaining = dailyData.TOTAL[metric];
+
+            // Subtract SHOPPING first
+            remaining = Math.max(0, remaining - dailyData.SHOPPING[metric]);
+
+            // Subtract VIDEO
+            let videoAllocation = Math.min(dailyData.VIDEO[metric], remaining);
+            dailyData.VIDEO[metric] = videoAllocation;
+            remaining = Math.max(0, remaining - videoAllocation);
+
+            // Allocate to DISPLAY, but not more than what's left
+            let displayAllocation = Math.min(dailyData.DISPLAY[metric], remaining);
+            dailyData.DISPLAY[metric] = displayAllocation;
+            remaining = Math.max(0, remaining - displayAllocation);
+
+            // Allocate the rest to SEARCH/OTHER
+            dailyData['SEARCH/OTHER'][metric] = remaining;
+        });
+    }
+
+    // Aggregate totals
+    for (let dailyData of analysisData.dailyPMaxSubChannelSpend.values()) {
+        ['TOTAL', ...subChannels].forEach(channel => {
+            metrics.forEach(metric => {
+                analysisData.pMaxSubChannelSpend[channel][metric] += dailyData[channel][metric];
+            });
+        });
+    }
+}
+//#endregion
+
+//#region derived metrics, build sheets
+const METRIC_FORMAT = {
+    'Impr': { decimals: 0 },
+    'Cost': { decimals: 0 },
+    'Conv': { decimals: 0 },
+    'Value': { decimals: 0 },
+    'ROAS': { decimals: 1, calculate: (value, cost) => cost > 0 ? value / cost : 0 },
+    'CPA': { decimals: 2, calculate: (cost, conv) => conv > 0 ? cost / conv : 0 }
+};
+
+function formatMetricValue(value, metric) {
+    if (METRIC_FORMAT[metric].calculate) {
+        return METRIC_FORMAT[metric].calculate(...value).toFixed(METRIC_FORMAT[metric].decimals);
+    }
+    return Number(value).toFixed(METRIC_FORMAT[metric].decimals);
+}
+
+function calculateDerivedMetrics(metrics) {
+    const derivedMetrics = {};
+    for (const [key, config] of Object.entries(METRICS)) {
+        if (config.calc) {
+            derivedMetrics[key] = config.calc(metrics);
+        }
+    }
+    return derivedMetrics;
+}
+
+function calculateIndex(date, blackFridayDate) {
+    const yearOfDate = date.getFullYear();
+    const adjustedBlackFriday = new Date(blackFridayDate);
+    adjustedBlackFriday.setFullYear(yearOfDate);
+
+    const diffTime = adjustedBlackFriday.getTime() - date.getTime();
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    return -diffDays;
+}
+
+function buildDailyCampaignData(data) {
+    const headers = ['date', 'campaign', ...Object.keys(METRICS), 'camptype'];
+    const rows = [headers];
+    const timezone = AdsApp.currentAccount().getTimeZone();
+
+    ['year1', 'year2'].forEach(year => {
+        if (data.dailyCampaignData && data.dailyCampaignData[year]) {
+            data.dailyCampaignData[year].forEach(item => {
+                const row = headers.map(header => {
+                    if (header === 'date') {
+                        return Utilities.formatDate(new Date(item.date), timezone, 'yyyy-MM-dd');
+                    }
+                    if (header === 'campaign') {
+                        return item.campaign;
+                    }
+                    if (header === 'camptype') {
+                        return item.camptype;
+                    }
+                    const value = item[header];
+                    const type = METRICS[header] ? METRICS[header].type : 'text';
+                    return formatValue(value, type, header);
+                });
+                rows.push(row);
+            });
+        }
+    });
+
+    return rows;
+}
+
+function buildDashboardData(data) {
+    const safeAccess = (obj, path) => path.split('.').reduce((acc, part) => acc && acc[part], obj);
+    const safeEntries = (obj) => obj && typeof obj === 'object' ? Object.entries(obj) : [];
+
+    let dashboardData = {
+        highestCpcKeyword: data.highestCpcKeyword ? {
+            keyword: data.highestCpcKeyword.keyword || '',
+            cpc: data.highestCpcKeyword.cpc || 0
+        } : { keyword: '', cpc: 0 },
+        highestCpcSearchTerm: data.highestCpcSearchTerm ? {
+            searchTerm: data.highestCpcSearchTerm.searchTerm || '',
+            cpc: data.highestCpcSearchTerm.cpc || 0
+        } : { searchTerm: '', cpc: 0 },
+        matchTypeData: {
+            exact: { cost: 0, conversions: 0 },
+            phrase: { cost: 0, conversions: 0 },
+            broad: { cost: 0, conversions: 0 }
+        },
+        oneWordNgrams: data.oneWordNgrams ? {
+            searchTermCount: data.oneWordNgrams.searchTermCount || 0,
+            uniqueSearchTermWords: data.oneWordNgrams.uniqueSearchTermWords || 0,
+            numberOfNewWords: data.oneWordNgrams.numberOfNewWords || 0,
+            highestSpend: data.oneWordNgrams.highestSpend || 0
+        } : { searchTermCount: 0, uniqueSearchTermWords: 0, numberOfNewWords: 0, highestSpend: 0 },
+        negatives: {
+            campaignNegativesCount: safeAccess(data, 'negativeKeywordsAndLists.campaignNegativesCount') || 0,
+            adGroupNegativesCount: safeAccess(data, 'negativeKeywordsAndLists.adGroupNegativesCount') || 0,
+            negativeListsCount: safeAccess(data, 'negativeKeywordsAndLists.negativeListsCount') || 0,
+            totalNegativesInLists: safeAccess(data, 'negativeKeywordsAndLists.totalNegativesInLists') || 0
+        }
+    };
+
+    safeEntries(data.matchTypeData).forEach(([type, typeData]) => {
+        if (['exact', 'phrase', 'broad'].includes(type.toLowerCase())) {
+            dashboardData.matchTypeData[type.toLowerCase()] = {
+                cost: typeData.cost || 0,
+                conversions: typeData.conversions || 0
+            };
+        }
+    });
+
+    return dashboardData;
+}
+
+function writeDashboard(analysisData, sheetUrl, tabName) {
+    const ss = SpreadsheetApp.openByUrl(sheetUrl);
+    const sheet = ss.getSheetByName(tabName) || ss.insertSheet(tabName);
+
+    const dashboardData = buildDashboardData(analysisData);
+
+    function writeToNamedRange(rangeName, value) {
+        try {
+            const range = ss.getRangeByName(rangeName);
+            if (range) {
+                range.setValue(value);
+            } else {
+                console.log(`Named range '${rangeName}' not found. Skipping.`);
+            }
+        } catch (error) {
+            console.log(`Error writing to named range '${rangeName}': ${error.message}`);
+        }
+    }
+
+    writeToNamedRange('highKey', dashboardData.highestCpcKeyword.keyword);
+    writeToNamedRange('highKeyCpc', dashboardData.highestCpcKeyword.cpc);
+    writeToNamedRange('highSearch', dashboardData.highestCpcSearchTerm.searchTerm);
+    writeToNamedRange('highSearchCpc', dashboardData.highestCpcSearchTerm.cpc);
+    writeToNamedRange('exactCost', dashboardData.matchTypeData.exact.cost);
+    writeToNamedRange('exactConv', dashboardData.matchTypeData.exact.conversions);
+    writeToNamedRange('phraseCost', dashboardData.matchTypeData.phrase.cost);
+    writeToNamedRange('phraseConv', dashboardData.matchTypeData.phrase.conversions);
+    writeToNamedRange('broadCost', dashboardData.matchTypeData.broad.cost);
+    writeToNamedRange('broadConv', dashboardData.matchTypeData.broad.conversions);
+    writeToNamedRange('ngramTerms', dashboardData.oneWordNgrams.searchTermCount);
+    writeToNamedRange('ngramWords', dashboardData.oneWordNgrams.uniqueSearchTermWords);
+    writeToNamedRange('newWords', dashboardData.oneWordNgrams.numberOfNewWords);
+    writeToNamedRange('newCost', dashboardData.oneWordNgrams.highestSpend);
+    writeToNamedRange('campNeg', dashboardData.negatives.campaignNegativesCount);
+    writeToNamedRange('adNeg', dashboardData.negatives.adGroupNegativesCount);
+    writeToNamedRange('listNeg', dashboardData.negatives.negativeListsCount);
+    writeToNamedRange('totalNeg', dashboardData.negatives.totalNegativesInLists);
+
+    console.log("Dashboard writing process completed.");
+}
+
+function getDateRangeAndIndexes() {
+    const blackFriday2024 = new Date('2024-11-29');
+    const blackFriday2023 = new Date('2023-11-24');
+    const startDate2024 = new Date('2024-09-20');
+    const endDate2024 = new Date('2024-12-13');
+    const startDate2023 = new Date('2023-09-15');
+    const endDate2023 = new Date('2023-12-08');
+
+    function generateDateRange(start, end) {
+        let dates = [];
+        let currentDate = new Date(start);
+        while (currentDate <= end) {
+            dates.push(new Date(currentDate));
+            currentDate.setDate(currentDate.getDate() + 1);
+        }
+        return dates;
+    }
+
+    return {
+        blackFriday2024: blackFriday2024,
+        blackFriday2023: blackFriday2023,
+        dateRange2024: generateDateRange(startDate2024, endDate2024),
+        dateRange2023: generateDateRange(startDate2023, endDate2023),
+        calculateIndex: function (date, blackFridayDate) {
+            const yearOfDate = date.getFullYear();
+            const adjustedBlackFriday = new Date(blackFridayDate);
+            adjustedBlackFriday.setFullYear(yearOfDate);
+            const diffTime = adjustedBlackFriday.getTime() - date.getTime();
+            const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+            return -diffDays;
+        }
+    };
+}
+//#endregion
+
+//#region write to sheets
+function writeProductDashboard(analysisData, sheetUrl) {
+    console.log("Writing product dashboard to sheets");
+    const ss = SpreadsheetApp.openByUrl(sheetUrl);
+
+    const headers = ['Product Title', 'Impressions', 'Clicks', 'Cost', 'Conv', 'Conv Val'];
+
+    function writeYear(year, tabName) {
+        const sheet = ss.getSheetByName(tabName) || ss.insertSheet(tabName);
+        sheet.clearContents();
+
+        const values = [headers, ...analysisData.topProducts[year]];
+
+        sheet.getRange(1, 1, values.length, 6).setValues(values);
+        console.log(`Product dashboard for ${year} written to ${tabName} successfully.`);
+    }
+
+    writeYear('year1', 'rProd24');
+    writeYear('year2', 'rProd23');
+}
+
+function writeDailyChannel(data, sheetUrl, tabName) {
+    const ss = SpreadsheetApp.openByUrl(sheetUrl);
+    const sheet = ss.getSheetByName(tabName) || ss.insertSheet(tabName);
+    sheet.getRange('A:BJ').clearContent();
+
+    const channelTypes = Object.values(AdvertisingChannelType);
+    const metrics = ['Impr', 'Cost', 'Conv', 'Value', 'ROAS', 'CPA'];
+
+    const headers = ['Date', 'Index', ...metrics.flatMap(metric => channelTypes.map(channelType => `${channelType} ${metric}`))];
+
+    const dateInfo = getDateRangeAndIndexes();
+    const rows = [headers];
+
+    dateInfo.dateRange2024.forEach(date => {
+        const dateString = Utilities.formatDate(date, AdsApp.currentAccount().getTimeZone(), 'yyyy-MM-dd');
+        const index = dateInfo.calculateIndex(date, dateInfo.blackFriday2024);
+
+        const dayData = data.dailyChannelTypeSpend.find(d => d.date === dateString) || {
+            CHANNEL_BREAKDOWN: {}
+        };
+
+        const row = [dateString, index];
+        metrics.forEach(metric => {
+            channelTypes.forEach(channelType => {
+                const channelData = dayData.CHANNEL_BREAKDOWN[channelType] || {};
+                if (metric === 'Impr') {
+                    row.push(formatMetricValue(channelData.impressions || 0, metric));
+                } else if (metric === 'Conv') {
+                    row.push(formatMetricValue(channelData.conversions || 0, metric));
+                } else if (metric === 'Value') {
+                    row.push(formatMetricValue(channelData['Conv Val'] || 0, metric));
+                } else if (metric === 'ROAS') {
+                    const value = channelData['Conv Val'] || 0;
+                    const cost = channelData.cost || 0;
+                    row.push(formatMetricValue([value, cost], metric));
+                } else if (metric === 'CPA') {
+                    const cost = channelData.cost || 0;
+                    const conv = channelData.conversions || 0;
+                    row.push(formatMetricValue([cost, conv], metric));
+                } else {
+                    row.push(formatMetricValue(channelData[metric.toLowerCase()] || 0, metric));
+                }
+            });
+        });
+        rows.push(row);
+    });
+
+    sheet.getRange(1, 1, rows.length, headers.length).setValues(rows);
+}
+
+function writeDailySubChannel(data, sheetUrl, tabName) {
+    const ss = SpreadsheetApp.openByUrl(sheetUrl);
+    const sheet = ss.getSheetByName(tabName) || ss.insertSheet(tabName);
+    sheet.getRange('A:Z').clearContent();
+
+    const subChannels = ['SHOPPING', 'VIDEO', 'DISPLAY', 'SEARCH/OTHER'];
+    const metrics = ['Impr', 'Cost', 'Conv', 'Value', 'ROAS', 'CPA'];
+
+    const headers = ['Date', 'Index', ...metrics.flatMap(metric => subChannels.map(channel => `${channel} ${metric}`))];
+
+    const dateInfo = getDateRangeAndIndexes();
+    const rows = [headers];
+
+    dateInfo.dateRange2024.forEach(date => {
+        const dateString = Utilities.formatDate(date, AdsApp.currentAccount().getTimeZone(), 'yyyy-MM-dd');
+        const index = dateInfo.calculateIndex(date, dateInfo.blackFriday2024);
+
+        const dailyData = data.dailyPMaxSubChannelSpend.get(dateString) || {};
+
+        const row = [dateString, index];
+        metrics.forEach(metric => {
+            subChannels.forEach(channel => {
+                const channelData = dailyData[channel] || {};
+                if (metric === 'Impr') {
+                    row.push(formatMetricValue(channelData.impressions || 0, metric));
+                } else if (metric === 'Conv') {
+                    row.push(formatMetricValue(channelData.conversions || 0, metric));
+                } else if (metric === 'Value') {
+                    row.push(formatMetricValue(channelData.convValue || channelData['Conv Val'] || 0, metric));
+                } else if (metric === 'ROAS') {
+                    const value = channelData.convValue || channelData['Conv Val'] || 0;
+                    const cost = channelData.cost || 0;
+                    row.push(formatMetricValue([value, cost], metric));
+                } else if (metric === 'CPA') {
+                    const cost = channelData.cost || 0;
+                    const conv = channelData.conversions || 0;
+                    row.push(formatMetricValue([cost, conv], metric));
+                } else {
+                    row.push(formatMetricValue(channelData[metric.toLowerCase()] || 0, metric));
+                }
+            });
+        });
+        rows.push(row);
+    });
+
+    sheet.getRange(1, 1, rows.length, headers.length).setValues(rows);
+}
+
+function writeDailyCampaign(data, sheetUrl, tabName) {
+    const ss = SpreadsheetApp.openByUrl(sheetUrl);
+    const sheet = ss.getSheetByName(tabName) || ss.insertSheet(tabName);
+    sheet.getRange('A:AN').clearContent();
+
+    let headers = ['date', 'index', 'campaign', ...Object.keys(METRICS).slice(0, -5), 'camptype'];
+    sheet.getRange(1, 1, 1, headers.length * 2).setValues([headers.concat(headers)]);
+
+    const timezone = AdsApp.currentAccount().getTimeZone();
+    const dateInfo = getDateRangeAndIndexes();
+    const year1Data = data.dailyCampaignData.year1 || [];
+    const year2Data = data.dailyCampaignData.year2 || [];
+
+    writeDataToSheet(year1Data, year2Data, sheet, headers, dateInfo, timezone);
+}
+
+function writeDailyAllCampaign(data, sheetUrl, tabName) {
+    const ss = SpreadsheetApp.openByUrl(sheetUrl);
+    const sheet = ss.getSheetByName(tabName) || ss.insertSheet(tabName);
+    sheet.getRange('A:AN').clearContent();
+
+    let headers = ['date', 'index', 'campaign', ...Object.keys(METRICS).slice(0, -5), 'camptype'];
+    sheet.getRange(1, 1, 1, headers.length * 2).setValues([headers.concat(headers)]);
+
+    const timezone = AdsApp.currentAccount().getTimeZone();
+    const dateInfo = getDateRangeAndIndexes();
+    const year1Data = (data.dailyCampaignData.year1 || []).filter(item => item.campaign === 'All Campaigns');
+    const year2Data = (data.dailyCampaignData.year2 || []).filter(item => item.campaign === 'All Campaigns');
+
+    writeDataToSheet(year1Data, year2Data, sheet, headers, dateInfo, timezone);
+}
+
+function writeDataToSheet(year1Data, year2Data, sheet, headers, dateInfo, timezone) {
+    const rows = [];
+    const maxLength = Math.max(year1Data.length, year2Data.length);
+
+    for (let i = 0; i < maxLength; i++) {
+        const year1Item = year1Data[i] || {};
+        const year2Item = year2Data[i] || {};
+
+        const row = [];
+        headers.forEach(header => {
+            // Year 1 data (2024)
+            if (header === 'date' && year1Item.date) {
+                const date = new Date(year1Item.date);
+                row.push(Utilities.formatDate(date, timezone, 'yyyy-MM-dd'));
+            } else if (header === 'index' && year1Item.date) {
+                const date = new Date(year1Item.date);
+                const index = dateInfo.calculateIndex(date, dateInfo.blackFriday2024);
+                row.push(index);
+            } else {
+                const value = year1Item[header];
+                const type = METRICS[header] ? METRICS[header].type : 'text';
+                row.push(formatValue(value, type, header));
+            }
+        });
+
+        headers.forEach(header => {
+            // Year 2 data (2023)
+            if (header === 'date' && year2Item.date) {
+                const date = new Date(year2Item.date);
+                row.push(Utilities.formatDate(date, timezone, 'yyyy-MM-dd'));
+            } else if (header === 'index' && year2Item.date) {
+                const date = new Date(year2Item.date);
+                const index = dateInfo.calculateIndex(date, dateInfo.blackFriday2023);
+                row.push(index);
+            } else {
+                const value = year2Item[header];
+                const type = METRICS[header] ? METRICS[header].type : 'text';
+                row.push(formatValue(value, type, header));
+            }
+        });
+
+        rows.push(row);
+    }
+
+    if (rows.length > 0) {
+        sheet.getRange(2, 1, rows.length, headers.length * 2).setValues(rows);
+    }
+
+    SpreadsheetApp.flush();
+}
+
+function setUserCampMetrics(sheetUrl) {
+    const ss = SpreadsheetApp.openByUrl(sheetUrl);
+
+    function readFromNamedRange(rangeName) {
+        try {
+            const range = ss.getRangeByName(rangeName);
+            if (range) {
+                return range.getValue();
+            } else {
+                console.log(`Named range '${rangeName}' not found.`);
+                return null;
+            }
+        } catch (error) {
+            console.log(`Error reading from named range '${rangeName}': ${error.message}`);
+            return null;
+        }
+    }
+
+    function writeToNamedRange(rangeName, value) {
+        try {
+            const range = ss.getRangeByName(rangeName);
+            if (range) {
+                range.setValue(value);
+                console.log(`Successfully wrote to named range '${rangeName}': ${value}`);
+            } else {
+                console.log(`Named range '${rangeName}' not found. Skipping.`);
+            }
+        } catch (error) {
+            console.log(`Error writing to named range '${rangeName}': ${error.message}`);
+        }
+    }
+
+    const topCampaignValue = readFromNamedRange('topCampaign');
+    if (topCampaignValue !== null) {
+        writeToNamedRange('userCampMetrics', topCampaignValue);
+    } else {
+        console.log('Unable to set userCampMetrics: topCampaign value not found');
+    }
+}
+//#endregion
+
+
+
+// Thanks for using this script. Chcek out the tab in your sheet for links to my other free scripts.
+// If you have any questions, please feel free to ask: https://mikerhodes.circle.so/c/help/
+
+// PS You're Awesome! 
