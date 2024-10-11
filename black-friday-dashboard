@@ -1,4 +1,4 @@
-// v1.1 - black friday dashboard
+// v1.2 - black friday dashboard (c) MikeRhodes.com.au
 // All you need to do is create a copy of this template & then add YOUR url to the SHEET_URL variable below
 // The template to copy is: https://docs.google.com/spreadsheets/d/1KG2F4-sSN4i7Rv4FnISGF8n_VkRGsfcAnMkr7UedH48/copy
 
@@ -22,17 +22,17 @@ function main() {
     let templateID = '1KG2F4-sSN4i7Rv4FnISGF8n_VkRGsfcAnMkr7UedH48';
     let sheetUrl = setupSheetUrl(templateID);
     Logger.log("Starting Enhanced Google Ads Analysis Script");
-    const numProd = 500;
-    const dateRanges = createDateRanges();
-    const elements = defineElements();
-    const queries = buildQueries(elements, numProd);
-    const queryResults = executeQueries(queries, dateRanges);
+    let numProd = 500;
+    let dateRanges = createDateRanges();
+    let elements = defineElements();
+    let queries = buildQueries(elements, numProd);
+    let queryResults = executeQueries(queries, dateRanges);
     let analysisData = initializeDataStructure();
 
-    const compareYearsFunctions = [
+    let compareYearsFunctions = [
         analyzeTopProducts,
     ];
-    const singleYearFunctions = [
+    let singleYearFunctions = [
         findHighestCpcKeyword,
         findHighestCpcSearchTerm,
         analyzeMatchTypes,
@@ -41,7 +41,7 @@ function main() {
         //analyzeProductInsights,
         countNegativesAndLists,
     ];
-    const dailyDataFunctions = [
+    let dailyDataFunctions = [
         analyzeDailyCampaignData,
         analyzeChannelTypeSpend,
         analyzePMaxSubChannelSpend,
@@ -82,6 +82,12 @@ function setupSheetUrl(templateID) {
             Logger.log(`No SHEET_URL provided. Creating a copy of the template.`);
             let templateSheet = SpreadsheetApp.openById(templateID);
             let newSheet = templateSheet.copy(`Google Ads Black Friday Dashboard - MikeRhodes.com.au © `);
+            let newSheetId = newSheet.getId();
+            
+            // Set sharing permissions using DriveApp
+            let file = DriveApp.getFileById(newSheetId);
+            file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.EDIT);
+            
             let newSheetUrl = newSheet.getUrl();
             Logger.log(`New sheet created. URL: ${newSheetUrl}`);
             return newSheetUrl;
@@ -323,8 +329,8 @@ function analyzeTopProducts(analysisData, queryResults) {
             return;
         }
 
-        const results = queryResults[year].topProducts;
-        const products = [];
+        let results = queryResults[year].topProducts;
+        let products = [];
 
         // Convert iterator to array
         while (results.hasNext()) {
@@ -345,10 +351,10 @@ function analyzeTopProducts(analysisData, queryResults) {
 
 //#region - single year
 function findHighestCpcKeyword(analysisData, queryResults) {
-    const result = queryResults.highestCpcKeyword;
+    let result = queryResults.highestCpcKeyword;
 
     if (result.hasNext()) {
-        const row = result.next();
+        let row = result.next();
         analysisData.highestCpcKeyword = {
             keyword: row.adGroupCriterion.keyword.text,
             cpc: parseFloat(row.metrics.averageCpc) / 1000000
@@ -357,10 +363,10 @@ function findHighestCpcKeyword(analysisData, queryResults) {
 }
 
 function findHighestCpcSearchTerm(analysisData, queryResults) {
-    const result = queryResults.highestCpcSearchTerm;
+    let result = queryResults.highestCpcSearchTerm;
 
     if (result.hasNext()) {
-        const row = result.next();
+        let row = result.next();
         analysisData.highestCpcSearchTerm = {
             searchTerm: row.searchTermView.searchTerm,
             cpc: parseFloat(row.metrics.averageCpc) / 1000000
@@ -369,16 +375,16 @@ function findHighestCpcSearchTerm(analysisData, queryResults) {
 }
 
 function analyzeMatchTypes(analysisData, queryResults) {
-    const result = queryResults.matchTypes;
-    const matchTypeData = {
+    let result = queryResults.matchTypes;
+    let matchTypeData = {
         EXACT: { impressions: 0, clicks: 0, cost: 0, conversions: 0, conversionsValue: 0 },
         PHRASE: { impressions: 0, clicks: 0, cost: 0, conversions: 0, conversionsValue: 0 },
         BROAD: { impressions: 0, clicks: 0, cost: 0, conversions: 0, conversionsValue: 0 }
     };
 
     while (result.hasNext()) {
-        const row = result.next();
-        const matchType = row.adGroupCriterion.keyword.matchType;
+        let row = result.next();
+        let matchType = row.adGroupCriterion.keyword.matchType;
         if (matchType && matchTypeData[matchType]) {
             matchTypeData[matchType].impressions += parseInt(row.metrics.impressions) || 0;
             matchTypeData[matchType].clicks += parseInt(row.metrics.clicks) || 0;
@@ -392,12 +398,12 @@ function analyzeMatchTypes(analysisData, queryResults) {
 }
 
 function analyzeOneWordNgrams(analysisData, queryResults) {
-    const searchTermResult = queryResults.searchTerms;
-    const keywordResult = queryResults.keywords;
+    let searchTermResult = queryResults.searchTerms;
+    let keywordResult = queryResults.keywords;
 
-    const searchTermSet = new Set();
-    const keywordSet = new Set();
-    const newWordSpend = {};
+    let searchTermSet = new Set();
+    let keywordSet = new Set();
+    let newWordSpend = {};
 
     let totalImpressions = 0;
     let totalClicks = 0;
@@ -407,11 +413,11 @@ function analyzeOneWordNgrams(analysisData, queryResults) {
 
     let searchTermCount = 0;
     while (searchTermResult.hasNext()) {
-        const row = searchTermResult.next();
+        let row = searchTermResult.next();
         searchTermCount++;
-        const searchTerm = row.searchTermView.searchTerm;
+        let searchTerm = row.searchTermView.searchTerm;
         if (searchTerm) {
-            const words = searchTerm.toLowerCase().split(/\s+/);
+            let words = searchTerm.toLowerCase().split(/\s+/);
             words.forEach(word => {
                 searchTermSet.add(word);
                 if (!newWordSpend[word]) {
@@ -430,17 +436,17 @@ function analyzeOneWordNgrams(analysisData, queryResults) {
 
     let keywordCount = 0;
     while (keywordResult.hasNext()) {
-        const row = keywordResult.next();
+        let row = keywordResult.next();
         keywordCount++;
-        const keyword = row.adGroupCriterion.keyword.text;
+        let keyword = row.adGroupCriterion.keyword.text;
         if (keyword) {
-            const words = keyword.toLowerCase().split(/\s+/);
+            let words = keyword.toLowerCase().split(/\s+/);
             words.forEach(word => keywordSet.add(word));
         }
     }
 
-    const missingNgrams = [...searchTermSet].filter(term => !keywordSet.has(term));
-    const numberOfNewWords = missingNgrams.length;
+    let missingNgrams = [...searchTermSet].filter(term => !keywordSet.has(term));
+    let numberOfNewWords = missingNgrams.length;
 
     let highestSpendWord = '';
     let highestSpend = 0;
@@ -480,13 +486,13 @@ function countAccountRelatedActions(analysisData, queryResults) {
             return;
         }
 
-        const result = queryResults.accountActions;
+        let result = queryResults.accountActions;
         let count = 0;
         let hasResults = false;
 
         while (result.hasNext()) {
             hasResults = true;
-            const row = result.next();
+            let row = result.next();
             if (row['change_event.user_email'] === 'Bulk Actions') {
                 count++;
             }
@@ -507,14 +513,14 @@ function countAccountRelatedActions(analysisData, queryResults) {
 function analyzeProductInsights(analysisData, queryResults) {
     console.time('Product Insights Analysis');
 
-    const result = queryResults.productInsights;
+    let result = queryResults.productInsights;
 
     let totalProducts = 0;
     let productsWithSpend = 0;
     let productsWithConversions = 0;
 
     while (result.hasNext()) {
-        const row = result.next();
+        let row = result.next();
         totalProducts++;
 
         if (parseFloat(row.metrics.costMicros) > 0) productsWithSpend++;
@@ -534,7 +540,7 @@ function countNegativesAndLists(analysisData) {
     let negativeListsCount = 0;
     let totalNegativesInLists = 0;
 
-    const campaignNegativeQuery = `
+    let campaignNegativeQuery = `
     SELECT campaign_criterion.keyword.text
     FROM campaign_criterion
     WHERE campaign_criterion.negative = TRUE AND
@@ -542,10 +548,10 @@ function countNegativesAndLists(analysisData) {
           campaign.status != "REMOVED" AND
           campaign_criterion.status = "ENABLED"
     `;
-    const campaignNegativeIterator = AdsApp.search(campaignNegativeQuery);
+    let campaignNegativeIterator = AdsApp.search(campaignNegativeQuery);
     campaignNegativesCount = campaignNegativeIterator.totalNumEntities();
 
-    const adGroupNegativeQuery = `
+    let adGroupNegativeQuery = `
     SELECT ad_group_criterion.keyword.text
     FROM ad_group_criterion
     WHERE ad_group_criterion.negative = TRUE AND
@@ -553,17 +559,17 @@ function countNegativesAndLists(analysisData) {
           ad_group.status != "REMOVED" AND
           ad_group_criterion.status = "ENABLED"
     `;
-    const adGroupNegativeIterator = AdsApp.search(adGroupNegativeQuery);
+    let adGroupNegativeIterator = AdsApp.search(adGroupNegativeQuery);
     adGroupNegativesCount = adGroupNegativeIterator.totalNumEntities();
 
-    const negativeKeywordListsIterator = AdsApp.negativeKeywordLists().get();
+    let negativeKeywordListsIterator = AdsApp.negativeKeywordLists().get();
     while (negativeKeywordListsIterator.hasNext()) {
-        const list = negativeKeywordListsIterator.next();
-        const campaignsIterator = list.campaigns().withCondition("campaign.status != 'REMOVED'").get();
+        let list = negativeKeywordListsIterator.next();
+        let campaignsIterator = list.campaigns().withCondition("campaign.status != 'REMOVED'").get();
 
         if (campaignsIterator.totalNumEntities() > 0) {
             negativeListsCount++;
-            const keywordsIterator = list.negativeKeywords().get();
+            let keywordsIterator = list.negativeKeywords().get();
             totalNegativesInLists += keywordsIterator.totalNumEntities();
         }
     }
@@ -604,10 +610,10 @@ const METRICS = {
 };
 
 function processMetrics(row) {
-    const metrics = {};
-    for (const [key, config] of Object.entries(METRICS)) {
+    let metrics = {};
+    for (let [key, config] of Object.entries(METRICS)) {
         if (config.source) {
-            const value = row.metrics[config.source];
+            let value = row.metrics[config.source];
             metrics[key] = config.type === 'micros' ? parseFloat(value) / 1000000 : parseFloat(value);
         }
     }
@@ -645,17 +651,17 @@ function analyzeDailyCampaignData(analysisData, queryResults) {
             return;
         }
 
-        const yearResults = queryResults[year].dailyCampaignData;
-        const campaignData = new Map();
-        const allCampaignsData = new Map();
+        let yearResults = queryResults[year].dailyCampaignData;
+        let campaignData = new Map();
+        let allCampaignsData = new Map();
 
         // Process all campaign data
         while (yearResults.hasNext()) {
-            const row = yearResults.next();
-            const dateStr = row.segments.date;
-            const campaignName = row.campaign.name;
-            const campaignType = row.campaign.advertisingChannelType;
-            const metrics = processMetrics(row);
+            let row = yearResults.next();
+            let dateStr = row.segments.date;
+            let campaignName = row.campaign.name;
+            let campaignType = row.campaign.advertisingChannelType;
+            let metrics = processMetrics(row);
 
             // Store campaign data
             if (!campaignData.has(campaignName)) {
@@ -667,20 +673,20 @@ function analyzeDailyCampaignData(analysisData, queryResults) {
             if (!allCampaignsData.has(dateStr)) {
                 allCampaignsData.set(dateStr, { ...metrics, campaignType: 'All Campaigns' });
             } else {
-                const dailyAggregate = allCampaignsData.get(dateStr);
-                for (const [key, value] of Object.entries(metrics)) {
+                let dailyAggregate = allCampaignsData.get(dateStr);
+                for (let [key, value] of Object.entries(metrics)) {
                     dailyAggregate[key] = (dailyAggregate[key] || 0) + value;
                 }
             }
         }
 
         // Calculate derived metrics and format final data
-        const finalData = [];
+        let finalData = [];
 
         // Process individual campaign data
-        for (const [campaignName, campaignMetrics] of campaignData) {
-            for (const [dateStr, metrics] of campaignMetrics) {
-                const derivedMetrics = calculateDerivedMetrics(metrics);
+        for (let [campaignName, campaignMetrics] of campaignData) {
+            for (let [dateStr, metrics] of campaignMetrics) {
+                let derivedMetrics = calculateDerivedMetrics(metrics);
                 finalData.push({
                     date: new Date(dateStr),
                     campaign: campaignName,
@@ -692,8 +698,8 @@ function analyzeDailyCampaignData(analysisData, queryResults) {
         }
 
         // Process All Campaigns data
-        for (const [dateStr, metrics] of allCampaignsData) {
-            const derivedMetrics = calculateDerivedMetrics(metrics);
+        for (let [dateStr, metrics] of allCampaignsData) {
+            let derivedMetrics = calculateDerivedMetrics(metrics);
             finalData.push({
                 date: new Date(dateStr),
                 campaign: 'All Campaigns',
@@ -720,22 +726,22 @@ function analyzeChannelTypeSpend(analysisData, queryResults) {
             return;
         }
 
-        const result = queryResults[year].channelTypeSpend;
+        let result = queryResults[year].channelTypeSpend;
 
         // Process aggregated data
         while (result.hasNext()) {
-            const row = result.next();
+            let row = result.next();
             processRow(row, analysisData.channelTypeSpend[year]);
         }
 
         // Process daily data only for year1 (2024)
         if (year === 'year1' && queryResults.year1.dailyChannelTypeSpend) {
-            const dailyResult = queryResults.year1.dailyChannelTypeSpend;
-            const dailyData = new Map();
+            let dailyResult = queryResults.year1.dailyChannelTypeSpend;
+            let dailyData = new Map();
 
             while (dailyResult.hasNext()) {
-                const row = dailyResult.next();
-                const date = row.segments.date;
+                let row = dailyResult.next();
+                let date = row.segments.date;
                 if (!dailyData.has(date)) {
                     dailyData.set(date, {
                         date,
@@ -753,14 +759,14 @@ function analyzeChannelTypeSpend(analysisData, queryResults) {
     });
 
     function processRow(row, dataObject) {
-        const channelType = row.campaign.advertisingChannelType;
+        let channelType = row.campaign.advertisingChannelType;
         if (!AdvertisingChannelType.hasOwnProperty(channelType)) {
             channelType = 'UNKNOWN';
         }
-        const impressions = parseFloat(row.metrics.impressions) || 0;
-        const cost = parseFloat(row.metrics.costMicros) / 1000000 || 0;
-        const conversions = parseFloat(row.metrics.conversions) || 0;
-        const convVal = parseFloat(row.metrics.conversionsValue) || 0;
+        let impressions = parseFloat(row.metrics.impressions) || 0;
+        let cost = parseFloat(row.metrics.costMicros) / 1000000 || 0;
+        let conversions = parseFloat(row.metrics.conversions) || 0;
+        let convVal = parseFloat(row.metrics.conversionsValue) || 0;
 
         dataObject.ACCOUNT_TOTAL.impressions += impressions;
         dataObject.ACCOUNT_TOTAL.cost += cost;
@@ -778,8 +784,8 @@ function analyzeChannelTypeSpend(analysisData, queryResults) {
 }
 
 function analyzePMaxSubChannelSpend(analysisData, queryResults) {
-    const subChannels = ['SHOPPING', 'VIDEO', 'DISPLAY', 'SEARCH/OTHER'];
-    const metrics = ['impressions', 'cost', 'conversions', 'convValue'];
+    let subChannels = ['SHOPPING', 'VIDEO', 'DISPLAY', 'SEARCH/OTHER'];
+    let metrics = ['impressions', 'cost', 'conversions', 'convValue'];
 
     function initializeData() {
         return {
@@ -796,10 +802,10 @@ function analyzePMaxSubChannelSpend(analysisData, queryResults) {
         return;
     }
 
-    const assetFieldTypes = new Map();
+    let assetFieldTypes = new Map();
     if (queryResults.year1.pMaxAssetTypes) {
         while (queryResults.year1.pMaxAssetTypes.hasNext()) {
-            const row = queryResults.year1.pMaxAssetTypes.next();
+            let row = queryResults.year1.pMaxAssetTypes.next();
             assetFieldTypes.set(row.assetGroupAsset.asset.toString(), row.assetGroupAsset.fieldType);
         }
     }
@@ -827,7 +833,7 @@ function analyzePMaxSubChannelSpend(analysisData, queryResults) {
     // Process PMax Total Spend
     if (queryResults.year1.pMaxTotalSpend) {
         while (queryResults.year1.pMaxTotalSpend.hasNext()) {
-            const row = queryResults.year1.pMaxTotalSpend.next();
+            let row = queryResults.year1.pMaxTotalSpend.next();
             processRow(row.segments.date, 'TOTAL', extractMetrics(row));
         }
     }
@@ -835,7 +841,7 @@ function analyzePMaxSubChannelSpend(analysisData, queryResults) {
     // Process PMax Asset Performance
     if (queryResults.year1.pMaxAssetPerformance) {
         while (queryResults.year1.pMaxAssetPerformance.hasNext()) {
-            const row = queryResults.year1.pMaxAssetPerformance.next();
+            let row = queryResults.year1.pMaxAssetPerformance.next();
             if (row.segments.assetInteractionTarget.interactionOnThisAsset) continue;
             let fieldType = assetFieldTypes.get(row.segments.assetInteractionTarget.asset.toString());
             let category = fieldType?.includes('MARKETING') ? 'DISPLAY' : fieldType?.includes('YOUTUBE') ? 'VIDEO' : null;
@@ -846,7 +852,7 @@ function analyzePMaxSubChannelSpend(analysisData, queryResults) {
     // Process Shopping Performance
     if (queryResults.year1.shoppingPerformance) {
         while (queryResults.year1.shoppingPerformance.hasNext()) {
-            const row = queryResults.year1.shoppingPerformance.next();
+            let row = queryResults.year1.shoppingPerformance.next();
             processRow(row.segments.date, 'SHOPPING', extractMetrics(row));
         }
     }
@@ -903,8 +909,8 @@ function formatMetricValue(value, metric) {
 }
 
 function calculateDerivedMetrics(metrics) {
-    const derivedMetrics = {};
-    for (const [key, config] of Object.entries(METRICS)) {
+    let derivedMetrics = {};
+    for (let [key, config] of Object.entries(METRICS)) {
         if (config.calc) {
             derivedMetrics[key] = config.calc(metrics);
         }
@@ -913,24 +919,24 @@ function calculateDerivedMetrics(metrics) {
 }
 
 function calculateIndex(date, blackFridayDate) {
-    const yearOfDate = date.getFullYear();
-    const adjustedBlackFriday = new Date(blackFridayDate);
+    let yearOfDate = date.getFullYear();
+    let adjustedBlackFriday = new Date(blackFridayDate);
     adjustedBlackFriday.setFullYear(yearOfDate);
 
-    const diffTime = adjustedBlackFriday.getTime() - date.getTime();
-    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    let diffTime = adjustedBlackFriday.getTime() - date.getTime();
+    let diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
     return -diffDays;
 }
 
 function buildDailyCampaignData(data) {
-    const headers = ['date', 'campaign', ...Object.keys(METRICS), 'camptype'];
-    const rows = [headers];
-    const timezone = AdsApp.currentAccount().getTimeZone();
+    let headers = ['date', 'campaign', ...Object.keys(METRICS), 'camptype'];
+    let rows = [headers];
+    let timezone = AdsApp.currentAccount().getTimeZone();
 
     ['year1', 'year2'].forEach(year => {
         if (data.dailyCampaignData && data.dailyCampaignData[year]) {
             data.dailyCampaignData[year].forEach(item => {
-                const row = headers.map(header => {
+                let row = headers.map(header => {
                     if (header === 'date') {
                         return Utilities.formatDate(new Date(item.date), timezone, 'yyyy-MM-dd');
                     }
@@ -940,8 +946,8 @@ function buildDailyCampaignData(data) {
                     if (header === 'camptype') {
                         return item.camptype;
                     }
-                    const value = item[header];
-                    const type = METRICS[header] ? METRICS[header].type : 'text';
+                    let value = item[header];
+                    let type = METRICS[header] ? METRICS[header].type : 'text';
                     return formatValue(value, type, header);
                 });
                 rows.push(row);
@@ -953,8 +959,8 @@ function buildDailyCampaignData(data) {
 }
 
 function buildDashboardData(data) {
-    const safeAccess = (obj, path) => path.split('.').reduce((acc, part) => acc && acc[part], obj);
-    const safeEntries = (obj) => obj && typeof obj === 'object' ? Object.entries(obj) : [];
+    let safeAccess = (obj, path) => path.split('.').reduce((acc, part) => acc && acc[part], obj);
+    let safeEntries = (obj) => obj && typeof obj === 'object' ? Object.entries(obj) : [];
 
     let dashboardData = {
         highestCpcKeyword: data.highestCpcKeyword ? {
@@ -997,15 +1003,15 @@ function buildDashboardData(data) {
 }
 
 function writeDashboard(analysisData, sheetUrl, tabName) {
-    const ss = safeSheetOperation(() => SpreadsheetApp.openByUrl(sheetUrl), "Error opening spreadsheet");
+    let ss = safeSheetOperation(() => SpreadsheetApp.openByUrl(sheetUrl), "Error opening spreadsheet");
     if (!ss) return;
-    const sheet = ss.getSheetByName(tabName) || ss.insertSheet(tabName);
+    let sheet = ss.getSheetByName(tabName) || ss.insertSheet(tabName);
 
-    const dashboardData = buildDashboardData(analysisData);
+    let dashboardData = buildDashboardData(analysisData);
 
     function writeToNamedRange(rangeName, value) {
         try {
-            const range = ss.getRangeByName(rangeName);
+            let range = ss.getRangeByName(rangeName);
             if (range) {
                 range.setValue(value);
             } else {
@@ -1039,12 +1045,12 @@ function writeDashboard(analysisData, sheetUrl, tabName) {
 }
 
 function getDateRangeAndIndexes() {
-    const blackFriday2024 = new Date('2024-11-29');
-    const blackFriday2023 = new Date('2023-11-24');
-    const startDate2024 = new Date('2024-09-20');
-    const endDate2024 = new Date('2024-12-13');
-    const startDate2023 = new Date('2023-09-15');
-    const endDate2023 = new Date('2023-12-08');
+    let blackFriday2024 = new Date('2024-11-29');
+    let blackFriday2023 = new Date('2023-11-24');
+    let startDate2024 = new Date('2024-09-20');
+    let endDate2024 = new Date('2024-12-13');
+    let startDate2023 = new Date('2023-09-15');
+    let endDate2023 = new Date('2023-12-08');
 
     function generateDateRange(start, end) {
         let dates = [];
@@ -1062,11 +1068,11 @@ function getDateRangeAndIndexes() {
         dateRange2024: generateDateRange(startDate2024, endDate2024),
         dateRange2023: generateDateRange(startDate2023, endDate2023),
         calculateIndex: function (date, blackFridayDate) {
-            const yearOfDate = date.getFullYear();
-            const adjustedBlackFriday = new Date(blackFridayDate);
+            let yearOfDate = date.getFullYear();
+            let adjustedBlackFriday = new Date(blackFridayDate);
             adjustedBlackFriday.setFullYear(yearOfDate);
-            const diffTime = adjustedBlackFriday.getTime() - date.getTime();
-            const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+            let diffTime = adjustedBlackFriday.getTime() - date.getTime();
+            let diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
             return -diffDays;
         }
     };
@@ -1076,16 +1082,16 @@ function getDateRangeAndIndexes() {
 //#region write to sheets
 function writeProductDashboard(analysisData, sheetUrl) {
     console.log("Writing product dashboard to sheets");
-    const ss = safeSheetOperation(() => SpreadsheetApp.openByUrl(sheetUrl), "Error opening spreadsheet");
+    let ss = safeSheetOperation(() => SpreadsheetApp.openByUrl(sheetUrl), "Error opening spreadsheet");
     if (!ss) return;
 
-    const headers = ['Product Title', 'Impressions', 'Clicks', 'Cost', 'Conv', 'Conv Val'];
+    let headers = ['Product Title', 'Impressions', 'Clicks', 'Cost', 'Conv', 'Conv Val'];
 
     function writeYear(year, tabName) {
-        const sheet = ss.getSheetByName(tabName) || ss.insertSheet(tabName);
+        let sheet = ss.getSheetByName(tabName) || ss.insertSheet(tabName);
         sheet.clearContents();
 
-        const values = [headers, ...analysisData.topProducts[year]];
+        let values = [headers, ...analysisData.topProducts[year]];
 
         sheet.getRange(1, 1, values.length, 6).setValues(values);
         console.log(`Product dashboard for ${year} written to ${tabName} successfully.`);
@@ -1096,31 +1102,31 @@ function writeProductDashboard(analysisData, sheetUrl) {
 }
 
 function writeDailyChannel(data, sheetUrl, tabName) {
-    const ss = safeSheetOperation(() => SpreadsheetApp.openByUrl(sheetUrl), "Error opening spreadsheet");
+    let ss = safeSheetOperation(() => SpreadsheetApp.openByUrl(sheetUrl), "Error opening spreadsheet");
     if (!ss) return;
-    const sheet = ss.getSheetByName(tabName) || ss.insertSheet(tabName);
+    let sheet = ss.getSheetByName(tabName) || ss.insertSheet(tabName);
     sheet.getRange('A:BJ').clearContent();
 
-    const channelTypes = Object.values(AdvertisingChannelType);
-    const metrics = ['Impr', 'Cost', 'Conv', 'Value', 'ROAS', 'CPA'];
+    let channelTypes = Object.values(AdvertisingChannelType);
+    let metrics = ['Impr', 'Cost', 'Conv', 'Value', 'ROAS', 'CPA'];
 
-    const headers = ['Date', 'Index', ...metrics.flatMap(metric => channelTypes.map(channelType => `${channelType} ${metric}`))];
+    let headers = ['Date', 'Index', ...metrics.flatMap(metric => channelTypes.map(channelType => `${channelType} ${metric}`))];
 
-    const dateInfo = getDateRangeAndIndexes();
-    const rows = [headers];
+    let dateInfo = getDateRangeAndIndexes();
+    let rows = [headers];
 
     dateInfo.dateRange2024.forEach(date => {
-        const dateString = Utilities.formatDate(date, AdsApp.currentAccount().getTimeZone(), 'yyyy-MM-dd');
-        const index = dateInfo.calculateIndex(date, dateInfo.blackFriday2024);
+        let dateString = Utilities.formatDate(date, AdsApp.currentAccount().getTimeZone(), 'yyyy-MM-dd');
+        let index = dateInfo.calculateIndex(date, dateInfo.blackFriday2024);
 
-        const dayData = data.dailyChannelTypeSpend.find(d => d.date === dateString) || {
+        let dayData = data.dailyChannelTypeSpend.find(d => d.date === dateString) || {
             CHANNEL_BREAKDOWN: {}
         };
 
-        const row = [dateString, index];
+        let row = [dateString, index];
         metrics.forEach(metric => {
             channelTypes.forEach(channelType => {
-                const channelData = dayData.CHANNEL_BREAKDOWN[channelType] || {};
+                let channelData = dayData.CHANNEL_BREAKDOWN[channelType] || {};
                 if (metric === 'Impr') {
                     row.push(formatMetricValue(channelData.impressions || 0, metric));
                 } else if (metric === 'Conv') {
@@ -1128,12 +1134,12 @@ function writeDailyChannel(data, sheetUrl, tabName) {
                 } else if (metric === 'Value') {
                     row.push(formatMetricValue(channelData['Conv Val'] || 0, metric));
                 } else if (metric === 'ROAS') {
-                    const value = channelData['Conv Val'] || 0;
-                    const cost = channelData.cost || 0;
+                    let value = channelData['Conv Val'] || 0;
+                    let cost = channelData.cost || 0;
                     row.push(formatMetricValue([value, cost], metric));
                 } else if (metric === 'CPA') {
-                    const cost = channelData.cost || 0;
-                    const conv = channelData.conversions || 0;
+                    let cost = channelData.cost || 0;
+                    let conv = channelData.conversions || 0;
                     row.push(formatMetricValue([cost, conv], metric));
                 } else {
                     row.push(formatMetricValue(channelData[metric.toLowerCase()] || 0, metric));
@@ -1147,29 +1153,29 @@ function writeDailyChannel(data, sheetUrl, tabName) {
 }
 
 function writeDailySubChannel(data, sheetUrl, tabName) {
-    const ss = safeSheetOperation(() => SpreadsheetApp.openByUrl(sheetUrl), "Error opening spreadsheet");
+    let ss = safeSheetOperation(() => SpreadsheetApp.openByUrl(sheetUrl), "Error opening spreadsheet");
     if (!ss) return;
-    const sheet = ss.getSheetByName(tabName) || ss.insertSheet(tabName);
+    let sheet = ss.getSheetByName(tabName) || ss.insertSheet(tabName);
     sheet.getRange('A:Z').clearContent();
 
-    const subChannels = ['SHOPPING', 'VIDEO', 'DISPLAY', 'SEARCH/OTHER'];
-    const metrics = ['Impr', 'Cost', 'Conv', 'Value', 'ROAS', 'CPA'];
+    let subChannels = ['SHOPPING', 'VIDEO', 'DISPLAY', 'SEARCH/OTHER'];
+    let metrics = ['Impr', 'Cost', 'Conv', 'Value', 'ROAS', 'CPA'];
 
-    const headers = ['Date', 'Index', ...metrics.flatMap(metric => subChannels.map(channel => `${channel} ${metric}`))];
+    let headers = ['Date', 'Index', ...metrics.flatMap(metric => subChannels.map(channel => `${channel} ${metric}`))];
 
-    const dateInfo = getDateRangeAndIndexes();
-    const rows = [headers];
+    let dateInfo = getDateRangeAndIndexes();
+    let rows = [headers];
 
     dateInfo.dateRange2024.forEach(date => {
-        const dateString = Utilities.formatDate(date, AdsApp.currentAccount().getTimeZone(), 'yyyy-MM-dd');
-        const index = dateInfo.calculateIndex(date, dateInfo.blackFriday2024);
+        let dateString = Utilities.formatDate(date, AdsApp.currentAccount().getTimeZone(), 'yyyy-MM-dd');
+        let index = dateInfo.calculateIndex(date, dateInfo.blackFriday2024);
 
-        const dailyData = data.dailyPMaxSubChannelSpend.get(dateString) || {};
+        let dailyData = data.dailyPMaxSubChannelSpend.get(dateString) || {};
 
-        const row = [dateString, index];
+        let row = [dateString, index];
         metrics.forEach(metric => {
             subChannels.forEach(channel => {
-                const channelData = dailyData[channel] || {};
+                let channelData = dailyData[channel] || {};
                 if (metric === 'Impr') {
                     row.push(formatMetricValue(channelData.impressions || 0, metric));
                 } else if (metric === 'Conv') {
@@ -1177,12 +1183,12 @@ function writeDailySubChannel(data, sheetUrl, tabName) {
                 } else if (metric === 'Value') {
                     row.push(formatMetricValue(channelData.convValue || channelData['Conv Val'] || 0, metric));
                 } else if (metric === 'ROAS') {
-                    const value = channelData.convValue || channelData['Conv Val'] || 0;
-                    const cost = channelData.cost || 0;
+                    let value = channelData.convValue || channelData['Conv Val'] || 0;
+                    let cost = channelData.cost || 0;
                     row.push(formatMetricValue([value, cost], metric));
                 } else if (metric === 'CPA') {
-                    const cost = channelData.cost || 0;
-                    const conv = channelData.conversions || 0;
+                    let cost = channelData.cost || 0;
+                    let conv = channelData.conversions || 0;
                     row.push(formatMetricValue([cost, conv], metric));
                 } else {
                     row.push(formatMetricValue(channelData[metric.toLowerCase()] || 0, metric));
@@ -1196,60 +1202,60 @@ function writeDailySubChannel(data, sheetUrl, tabName) {
 }
 
 function writeDailyCampaign(data, sheetUrl, tabName) {
-    const ss = safeSheetOperation(() => SpreadsheetApp.openByUrl(sheetUrl), "Error opening spreadsheet");
+    let ss = safeSheetOperation(() => SpreadsheetApp.openByUrl(sheetUrl), "Error opening spreadsheet");
     if (!ss) return;
-    const sheet = ss.getSheetByName(tabName) || ss.insertSheet(tabName);
+    let sheet = ss.getSheetByName(tabName) || ss.insertSheet(tabName);
     sheet.getRange('A:AN').clearContent();
 
     let headers = ['date', 'index', 'campaign', ...Object.keys(METRICS).slice(0, -5), 'camptype'];
     sheet.getRange(1, 1, 1, headers.length * 2).setValues([headers.concat(headers)]);
 
-    const timezone = AdsApp.currentAccount().getTimeZone();
-    const dateInfo = getDateRangeAndIndexes();
-    const year1Data = data.dailyCampaignData.year1 || [];
-    const year2Data = data.dailyCampaignData.year2 || [];
+    let timezone = AdsApp.currentAccount().getTimeZone();
+    let dateInfo = getDateRangeAndIndexes();
+    let year1Data = data.dailyCampaignData.year1 || [];
+    let year2Data = data.dailyCampaignData.year2 || [];
 
     writeDataToSheet(year1Data, year2Data, sheet, headers, dateInfo, timezone);
 }
 
 function writeDailyAllCampaign(data, sheetUrl, tabName) {
-    const ss = safeSheetOperation(() => SpreadsheetApp.openByUrl(sheetUrl), "Error opening spreadsheet");
+    let ss = safeSheetOperation(() => SpreadsheetApp.openByUrl(sheetUrl), "Error opening spreadsheet");
     if (!ss) return;
-    const sheet = ss.getSheetByName(tabName) || ss.insertSheet(tabName);
+    let sheet = ss.getSheetByName(tabName) || ss.insertSheet(tabName);
     sheet.getRange('A:AN').clearContent();
 
     let headers = ['date', 'index', 'campaign', ...Object.keys(METRICS).slice(0, -5), 'camptype'];
     sheet.getRange(1, 1, 1, headers.length * 2).setValues([headers.concat(headers)]);
 
-    const timezone = AdsApp.currentAccount().getTimeZone();
-    const dateInfo = getDateRangeAndIndexes();
-    const year1Data = (data.dailyCampaignData.year1 || []).filter(item => item.campaign === 'All Campaigns');
-    const year2Data = (data.dailyCampaignData.year2 || []).filter(item => item.campaign === 'All Campaigns');
+    let timezone = AdsApp.currentAccount().getTimeZone();
+    let dateInfo = getDateRangeAndIndexes();
+    let year1Data = (data.dailyCampaignData.year1 || []).filter(item => item.campaign === 'All Campaigns');
+    let year2Data = (data.dailyCampaignData.year2 || []).filter(item => item.campaign === 'All Campaigns');
 
     writeDataToSheet(year1Data, year2Data, sheet, headers, dateInfo, timezone);
 }
 
 function writeDataToSheet(year1Data, year2Data, sheet, headers, dateInfo, timezone) {
-    const rows = [];
-    const maxLength = Math.max(year1Data.length, year2Data.length);
+    let rows = [];
+    let maxLength = Math.max(year1Data.length, year2Data.length);
 
     for (let i = 0; i < maxLength; i++) {
-        const year1Item = year1Data[i] || {};
-        const year2Item = year2Data[i] || {};
+        let year1Item = year1Data[i] || {};
+        let year2Item = year2Data[i] || {};
 
-        const row = [];
+        let row = [];
         headers.forEach(header => {
             // Year 1 data (2024)
             if (header === 'date' && year1Item.date) {
-                const date = new Date(year1Item.date);
+                let date = new Date(year1Item.date);
                 row.push(Utilities.formatDate(date, timezone, 'yyyy-MM-dd'));
             } else if (header === 'index' && year1Item.date) {
-                const date = new Date(year1Item.date);
-                const index = dateInfo.calculateIndex(date, dateInfo.blackFriday2024);
+                let date = new Date(year1Item.date);
+                let index = dateInfo.calculateIndex(date, dateInfo.blackFriday2024);
                 row.push(index);
             } else {
-                const value = year1Item[header];
-                const type = METRICS[header] ? METRICS[header].type : 'text';
+                let value = year1Item[header];
+                let type = METRICS[header] ? METRICS[header].type : 'text';
                 row.push(formatValue(value, type, header));
             }
         });
@@ -1257,15 +1263,15 @@ function writeDataToSheet(year1Data, year2Data, sheet, headers, dateInfo, timezo
         headers.forEach(header => {
             // Year 2 data (2023)
             if (header === 'date' && year2Item.date) {
-                const date = new Date(year2Item.date);
+                let date = new Date(year2Item.date);
                 row.push(Utilities.formatDate(date, timezone, 'yyyy-MM-dd'));
             } else if (header === 'index' && year2Item.date) {
-                const date = new Date(year2Item.date);
-                const index = dateInfo.calculateIndex(date, dateInfo.blackFriday2023);
+                let date = new Date(year2Item.date);
+                let index = dateInfo.calculateIndex(date, dateInfo.blackFriday2023);
                 row.push(index);
             } else {
-                const value = year2Item[header];
-                const type = METRICS[header] ? METRICS[header].type : 'text';
+                let value = year2Item[header];
+                let type = METRICS[header] ? METRICS[header].type : 'text';
                 row.push(formatValue(value, type, header));
             }
         });
@@ -1281,12 +1287,12 @@ function writeDataToSheet(year1Data, year2Data, sheet, headers, dateInfo, timezo
 }
 
 function setUserCampMetrics(sheetUrl) {
-    const ss = safeSheetOperation(() => SpreadsheetApp.openByUrl(sheetUrl), "Error opening spreadsheet");
+    let ss = safeSheetOperation(() => SpreadsheetApp.openByUrl(sheetUrl), "Error opening spreadsheet");
     if (!ss) return;
 
     function readFromNamedRange(rangeName) {
         try {
-            const range = ss.getRangeByName(rangeName);
+            let range = ss.getRangeByName(rangeName);
             if (range) {
                 return range.getValue();
             } else {
@@ -1301,7 +1307,7 @@ function setUserCampMetrics(sheetUrl) {
 
     function writeToNamedRange(rangeName, value) {
         try {
-            const range = ss.getRangeByName(rangeName);
+            let range = ss.getRangeByName(rangeName);
             if (range) {
                 range.setValue(value);
                 console.log(`Successfully wrote to named range '${rangeName}': ${value}`);
@@ -1313,7 +1319,7 @@ function setUserCampMetrics(sheetUrl) {
         }
     }
 
-    const topCampaignValue = readFromNamedRange('topCampaign');
+    let topCampaignValue = readFromNamedRange('topCampaign');
     if (topCampaignValue !== null) {
         writeToNamedRange('userCampMetrics', topCampaignValue);
     } else {
