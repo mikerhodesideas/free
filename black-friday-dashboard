@@ -1,13 +1,26 @@
-// v1.0 - black friday dashboard
+// v1.1 - black friday dashboard
 // All you need to do is create a copy of this template & then add YOUR url to the SHEET_URL variable below
 // The template to copy is: https://docs.google.com/spreadsheets/d/1KG2F4-sSN4i7Rv4FnISGF8n_VkRGsfcAnMkr7UedH48/copy
 
-const SHEET_URL = ''
+const SHEET_URL = '' // enter YOUR url between the single quotes
+
+
+
+
+
+
+
+// please don't change any code below this line --------------------------------
+
+
+
+
+
 
 
 function main() {
-    let template = 'https://docs.google.com/spreadsheets/d/1KG2F4-sSN4i7Rv4FnISGF8n_VkRGsfcAnMkr7UedH48/';
-    let sheetUrl = setupSheetUrl(template);
+    let templateID = '1KG2F4-sSN4i7Rv4FnISGF8n_VkRGsfcAnMkr7UedH48';
+    let sheetUrl = setupSheetUrl(templateID);
     Logger.log("Starting Enhanced Google Ads Analysis Script");
     const numProd = 500;
     const dateRanges = createDateRanges();
@@ -24,8 +37,8 @@ function main() {
         findHighestCpcSearchTerm,
         analyzeMatchTypes,
         analyzeOneWordNgrams,
-        countAccountRelatedActions,
-        analyzeProductInsights,
+        //countAccountRelatedActions,
+        //analyzeProductInsights,
         countNegativesAndLists,
     ];
     const dailyDataFunctions = [
@@ -45,7 +58,7 @@ function main() {
     timeFunction(writeDailyChannel)(analysisData, sheetUrl, 'rChannel');
     timeFunction(writeDailySubChannel)(analysisData, sheetUrl, 'rSub');
     timeFunction(setUserCampMetrics)(sheetUrl);
-    
+
     Logger.log(`Enhanced Google Ads Analysis Script Completed.`);
 }
 
@@ -63,11 +76,11 @@ const AdvertisingChannelType = {
     UNKNOWN: 'UNKNOWN'
 };
 
-function setupSheetUrl(template) {
+function setupSheetUrl(templateID) {
     try {
         if (typeof SHEET_URL === 'undefined' || SHEET_URL === '') {
             Logger.log(`No SHEET_URL provided. Creating a copy of the template.`);
-            let templateSheet = SpreadsheetApp.openByUrl(template);
+            let templateSheet = SpreadsheetApp.openById(templateID);
             let newSheet = templateSheet.copy(`Google Ads Black Friday Dashboard - MikeRhodes.com.au © `);
             let newSheetUrl = newSheet.getUrl();
             Logger.log(`New sheet created. URL: ${newSheetUrl}`);
@@ -79,6 +92,15 @@ function setupSheetUrl(template) {
     } catch (error) {
         Logger.log(`Error in setupSheetUrl: ${error.message}`);
         throw new Error(`Failed to setup sheet URL. Please check your permissions and try again.`);
+    }
+}
+
+function safeSheetOperation(operation, errorMessage) {
+    try {
+        return operation();
+    } catch (error) {
+        console.error(`${errorMessage}: ${error.message}`);
+        return null;
     }
 }
 
@@ -310,7 +332,7 @@ function analyzeTopProducts(analysisData, queryResults) {
         }
 
         analysisData.topProducts[year] = products.map(row => [
-            row.segments.productTitle || 'N/A',
+            (row.segments && row.segments.productTitle) ? row.segments.productTitle : 'N/A',
             parseInt(row.metrics.impressions) || 0,
             parseInt(row.metrics.clicks) || 0,
             parseFloat(row.metrics.costMicros) / 1000000 || 0,
@@ -395,15 +417,15 @@ function analyzeOneWordNgrams(analysisData, queryResults) {
                 if (!newWordSpend[word]) {
                     newWordSpend[word] = 0;
                 }
-                newWordSpend[word] += parseFloat(row.metrics.costMicros) / 1000000;
+                newWordSpend[word] += parseFloat(row.metrics.costMicros) / 1000000 || 0;
             });
         }
 
-        totalImpressions += parseInt(row.metrics.impressions);
-        totalClicks += parseInt(row.metrics.clicks);
-        totalCost += parseFloat(row.metrics.costMicros) / 1000000;
-        totalConversions += parseFloat(row.metrics.conversions);
-        totalConversionsValue += parseFloat(row.metrics.conversionsValue);
+        totalImpressions += parseInt(row.metrics.impressions) || 0;
+        totalClicks += parseInt(row.metrics.clicks) || 0;
+        totalCost += parseFloat(row.metrics.costMicros) / 1000000 || 0;
+        totalConversions += parseFloat(row.metrics.conversions) || 0;
+        totalConversionsValue += parseFloat(row.metrics.conversionsValue) || 0;
     }
 
     let keywordCount = 0;
@@ -975,7 +997,8 @@ function buildDashboardData(data) {
 }
 
 function writeDashboard(analysisData, sheetUrl, tabName) {
-    const ss = SpreadsheetApp.openByUrl(sheetUrl);
+    const ss = safeSheetOperation(() => SpreadsheetApp.openByUrl(sheetUrl), "Error opening spreadsheet");
+    if (!ss) return;
     const sheet = ss.getSheetByName(tabName) || ss.insertSheet(tabName);
 
     const dashboardData = buildDashboardData(analysisData);
@@ -1053,7 +1076,8 @@ function getDateRangeAndIndexes() {
 //#region write to sheets
 function writeProductDashboard(analysisData, sheetUrl) {
     console.log("Writing product dashboard to sheets");
-    const ss = SpreadsheetApp.openByUrl(sheetUrl);
+    const ss = safeSheetOperation(() => SpreadsheetApp.openByUrl(sheetUrl), "Error opening spreadsheet");
+    if (!ss) return;
 
     const headers = ['Product Title', 'Impressions', 'Clicks', 'Cost', 'Conv', 'Conv Val'];
 
@@ -1072,7 +1096,8 @@ function writeProductDashboard(analysisData, sheetUrl) {
 }
 
 function writeDailyChannel(data, sheetUrl, tabName) {
-    const ss = SpreadsheetApp.openByUrl(sheetUrl);
+    const ss = safeSheetOperation(() => SpreadsheetApp.openByUrl(sheetUrl), "Error opening spreadsheet");
+    if (!ss) return;
     const sheet = ss.getSheetByName(tabName) || ss.insertSheet(tabName);
     sheet.getRange('A:BJ').clearContent();
 
@@ -1122,7 +1147,8 @@ function writeDailyChannel(data, sheetUrl, tabName) {
 }
 
 function writeDailySubChannel(data, sheetUrl, tabName) {
-    const ss = SpreadsheetApp.openByUrl(sheetUrl);
+    const ss = safeSheetOperation(() => SpreadsheetApp.openByUrl(sheetUrl), "Error opening spreadsheet");
+    if (!ss) return;
     const sheet = ss.getSheetByName(tabName) || ss.insertSheet(tabName);
     sheet.getRange('A:Z').clearContent();
 
@@ -1170,7 +1196,8 @@ function writeDailySubChannel(data, sheetUrl, tabName) {
 }
 
 function writeDailyCampaign(data, sheetUrl, tabName) {
-    const ss = SpreadsheetApp.openByUrl(sheetUrl);
+    const ss = safeSheetOperation(() => SpreadsheetApp.openByUrl(sheetUrl), "Error opening spreadsheet");
+    if (!ss) return;
     const sheet = ss.getSheetByName(tabName) || ss.insertSheet(tabName);
     sheet.getRange('A:AN').clearContent();
 
@@ -1186,7 +1213,8 @@ function writeDailyCampaign(data, sheetUrl, tabName) {
 }
 
 function writeDailyAllCampaign(data, sheetUrl, tabName) {
-    const ss = SpreadsheetApp.openByUrl(sheetUrl);
+    const ss = safeSheetOperation(() => SpreadsheetApp.openByUrl(sheetUrl), "Error opening spreadsheet");
+    if (!ss) return;
     const sheet = ss.getSheetByName(tabName) || ss.insertSheet(tabName);
     sheet.getRange('A:AN').clearContent();
 
@@ -1253,7 +1281,8 @@ function writeDataToSheet(year1Data, year2Data, sheet, headers, dateInfo, timezo
 }
 
 function setUserCampMetrics(sheetUrl) {
-    const ss = SpreadsheetApp.openByUrl(sheetUrl);
+    const ss = safeSheetOperation(() => SpreadsheetApp.openByUrl(sheetUrl), "Error opening spreadsheet");
+    if (!ss) return;
 
     function readFromNamedRange(rangeName) {
         try {
@@ -1296,6 +1325,6 @@ function setUserCampMetrics(sheetUrl) {
 
 
 // Thanks for using this script. Check out the tab in your sheet for links to my other free scripts.
-// If you have any questions or feature requests, please feel free to ask: https://mikerhodes.circle.so/c/help/
+// If you have any questions, please feel free to ask: https://mikerhodes.circle.so/c/help/
 
 // PS You're Awesome! 
