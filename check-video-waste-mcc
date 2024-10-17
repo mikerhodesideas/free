@@ -1,0 +1,129 @@
+// v1 video spend - just a quick little script to show you where video spend goes in your MCC
+// to learn how to create scripts like this & get sample code to help, head to https://mikerhodes.circle.so/checkout/2024-scripts-and-sheets-workshop
+
+// copy the template first then enter YOUR url below
+// template to copy is: https://docs.google.com/spreadsheets/d/1IKy-ANntShmSIIc8AnSzIfYTD4BpEQ1EhpR9_9wSUsg/copy
+
+const SHEET_URL = ''; // Replace with your Google Spreadsheet URL. Leave empty to use the template.
+
+
+
+
+
+// please don't change anything below this line -------------------------------------------------------------
+
+const QUERY = `
+    SELECT 
+        campaign.name, 
+        segments.ad_network_type, 
+        metrics.impressions, 
+        metrics.clicks, 
+        metrics.cost_micros, 
+        metrics.conversions, 
+        metrics.conversions_value, 
+        metrics.video_views, 
+        metrics.average_cpv 
+    FROM campaign 
+    WHERE segments.date DURING LAST_30_DAYS
+        AND campaign.advertising_channel_type = "VIDEO"
+        AND metrics.cost_micros > 0
+    ORDER BY metrics.cost_micros DESC
+`;
+const MCC_SHEET = 'MCC Video Campaign Metrics';
+const WASTE_SHEET = 'Potential Waste';
+const TEMPLATE_URL = 'https://docs.google.com/spreadsheets/d/1IKy-ANntShmSIIc8AnSzIfYTD4BpEQ1EhpR9_9wSUsg/'; // don't change this url
+
+function main() {
+    let ss = setupSpreadsheet();
+    let data = collectData();
+    writeDataToSheet(ss.getSheetByName(MCC_SHEET) || ss.insertSheet(MCC_SHEET), data.allData);
+    processWasteData(ss, data.allData);
+    Logger.log("Script execution completed successfully.");
+}
+
+function setupSpreadsheet() {
+    if (!SHEET_URL) {
+        let templateSS = SpreadsheetApp.openByUrl(TEMPLATE_URL);
+        let ss = templateSS.copy("MCC Video Campaign Report - MikeRhodes.com.au © ");
+        Logger.log("****\nNo SHEET_URL provided. A copy of the template has been created\n****\n" + ss.getUrl() + "\n****");
+        return ss;
+    }
+    Logger.log("Using the provided spreadsheet: " + SHEET_URL);
+    return SpreadsheetApp.openByUrl(SHEET_URL);
+}
+
+function collectData() {
+    let headers = ['Account Name', 'CID', 'Campaign Name', 'Network Type', 'Impr', 'Clicks', 'Cost', 'Conv', 'Value', 'Views', 'CPV'];
+    let allData = [headers];
+    
+    let accountIterator = MccApp.accounts().get();
+    while (accountIterator.hasNext()) {
+        let account = accountIterator.next();
+        MccApp.select(account);
+        
+        let accountName = account.getName();
+        let accountId = account.getCustomerId();
+        
+        Logger.log(`Processing account: ${accountName} (${accountId})`);
+        
+        try {
+            let rows = AdsApp.report(QUERY, { apiVersion: 'v17' }).rows();
+            while (rows.hasNext()) {
+                let row = rows.next();
+                allData.push([
+                    accountName,
+                    accountId,
+                    row['campaign.name'],
+                    row['segments.ad_network_type'],
+                    parseInt(row['metrics.impressions']) || 0,
+                    parseInt(row['metrics.clicks']) || 0,
+                    parseFloat((parseInt(row['metrics.cost_micros']) / 1000000).toFixed(2)) || 0,
+                    parseFloat(row['metrics.conversions']).toFixed(2) || 0,
+                    parseFloat(row['metrics.conversions_value']).toFixed(2) || 0,
+                    parseInt(row['metrics.video_views']) || 0,
+                    parseFloat((row['metrics.average_cpv']) / 1000000).toFixed(2) || 0
+                ]);
+            }
+        } catch (error) {
+            Logger.log(`Error in account ${accountName} (${accountId}): ${error.message}`);
+            allData.push([accountName, accountId, `Error: ${error.message}`, '', '', '', '', '', '', '', '']);
+        }
+    }
+    return { allData };
+}
+
+function writeDataToSheet(sheet, data, isWasteSheet = false) {
+    // Clear content from row 2 down
+    sheet.getRange(2, 1, Math.max(1, sheet.getLastRow() - 1), sheet.getLastColumn()).clearContent();
+    
+    if (data && data.length > 0) {
+        // Write data starting from B2
+        sheet.getRange(2, 2, data.length, data[0].length).setValues(data);
+        Logger.log(`Data written to ${isWasteSheet ? 'waste' : 'main'} sheet. Total rows: ${data.length}`);
+    } else {
+        sheet.getRange(2, 2).setValue(isWasteSheet ? 'No CONTENT network type data found' : 'No relevant data found in the MCC');
+        Logger.log(isWasteSheet ? 'No CONTENT network type data found for potential waste calculation' : 'No relevant data found in the MCC');
+    }
+}
+
+function processWasteData(ss, allData) {
+    let wasteSheet = ss.getSheetByName(WASTE_SHEET) || ss.insertSheet(WASTE_SHEET);
+    let wasteData = [];
+    for (let i = 1; i < allData.length; i++) {
+        let row = allData[i];
+        if (row[3] === 'CONTENT') {
+            wasteData.push([row[0], row[1], row[2], parseFloat(row[6])]);
+        }
+    }
+    // Sort wasteData by cost in descending order
+    wasteData.sort((a, b) => b[3] - a[3]);
+    // Add header row
+    wasteData.unshift(['Account Name', 'CID', 'Campaign Name', 'Cost']);
+    writeDataToSheet(wasteSheet, wasteData, true);
+}
+
+
+
+// Thanks for using this script
+
+// PS You're Awesome!
