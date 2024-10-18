@@ -1,0 +1,90 @@
+// Define the URL for the Google Sheet. If left empty, a new sheet will be created.
+const SHEET_URL = '';
+
+function main() {
+  // Queries for different report types
+  const queries = {
+    Display: `
+      SELECT 
+        detail_placement_view.display_name, 
+        detail_placement_view.group_placement_target_url, 
+        detail_placement_view.placement, 
+        detail_placement_view.placement_type, 
+        detail_placement_view.resource_name, 
+        detail_placement_view.target_url, 
+        metrics.impressions, 
+        metrics.cost_micros, 
+        metrics.conversions, 
+        campaign.name 
+      FROM detail_placement_view 
+      WHERE segments.date DURING LAST_7_DAYS
+        AND metrics.impressions > 1000
+      ORDER BY campaign.name
+    `, // Note: Adjust the impressions threshold as needed. This can generate a large report.
+
+    Placements: `
+      SELECT 
+        performance_max_placement_view.display_name, 
+        performance_max_placement_view.placement, 
+        performance_max_placement_view.placement_type, 
+        performance_max_placement_view.resource_name, 
+        performance_max_placement_view.target_url, 
+        campaign.name, 
+        metrics.impressions 
+      FROM performance_max_placement_view 
+      WHERE segments.date DURING LAST_7_DAYS
+        AND metrics.impressions > 0
+      ORDER BY campaign.name
+    `
+  };
+
+  try {
+    // Get or create the spreadsheet
+    const spreadsheet = getOrCreateSpreadsheet();
+    
+    // Process queries for both v17 and v18
+    for (const [queryName, query] of Object.entries(queries)) {
+      processQuery(queryName, query, spreadsheet, 'v17');
+      processQuery(queryName, query, spreadsheet, 'v18');
+    }
+
+    Logger.log('All queries processed successfully.');
+  } catch (error) {
+    Logger.log(`Error in main function: ${error.message}`);
+  }
+}
+
+function getOrCreateSpreadsheet() {
+  if (SHEET_URL && SHEET_URL !== '') {
+    // Use existing sheet if URL is provided
+    return SpreadsheetApp.openByUrl(SHEET_URL);
+  } else {
+    // Create a new spreadsheet if URL is not provided
+    const newSpreadsheet = SpreadsheetApp.create('Google Ads Placements Report - MikeRhodes.com.au');
+    Logger.log(`New spreadsheet created. URL: ${newSpreadsheet.getUrl()}`);
+    return newSpreadsheet;
+  }
+}
+
+function processQuery(queryName, query, spreadsheet, version) {
+  try {
+    Logger.log(`Processing ${queryName} query (${version})`);
+    const report = AdsApp.report(query, { apiVersion: version });
+    
+    // Create or clear the sheet for this query and version
+    const sheetName = `${queryName}_${version}`;
+    let sheet = spreadsheet.getSheetByName(sheetName);
+    if (sheet) {
+      sheet.clear();
+    } else {
+      sheet = spreadsheet.insertSheet(sheetName);
+    }
+    
+    // Export the report data to the sheet
+    report.exportToSheet(sheet);
+    
+    Logger.log(`${queryName} query (${version}) completed successfully`);
+  } catch (error) {
+    Logger.log(`Error processing ${queryName} query (${version}): ${error.message}`);
+  }
+}
