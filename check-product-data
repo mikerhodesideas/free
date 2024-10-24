@@ -1,0 +1,325 @@
+// v1 product data - script to show product data in your MCC or single account
+// to learn how to create scripts like this & get sample code to help, head to https://mikerhodes.circle.so/checkout/2024-scripts-and-sheets-workshop
+// copy the template first then enter YOUR url below - template to copy is: https://docs.google.com/spreadsheets/d/1u67oj3E--vk56CXSxt51PF5pTBezpRW7jSX9dm6tKpM/copy
+
+
+const SHEET_URL = ''   // Replace with your Google Spreadsheet URL. Leave empty to use the template.
+
+
+
+
+
+// please don't change anything below this line -------------------------------------------------------------
+
+
+
+
+
+const QUERIES = {
+    product: {
+        productQuery: `SELECT segments.product_item_id, campaign.advertising_channel_type
+      FROM shopping_performance_view 
+      WHERE metrics.cost_micros > 0 
+      AND segments.date DURING LAST_30_DAYS
+      AND campaign.advertising_channel_type IN ("PERFORMANCE_MAX", "SHOPPING")`,
+        campaignQuery: `SELECT campaign.id, campaign.advertising_channel_type, metrics.cost_micros,
+        metrics.conversions, metrics.conversions_value, metrics.impressions
+      FROM campaign
+      WHERE metrics.cost_micros > 0
+      AND campaign.advertising_channel_type IN ("PERFORMANCE_MAX", "SHOPPING")
+      AND segments.date DURING LAST_30_DAYS`,
+        headers: [
+            'Account ID', 'Account Name',
+            'Campaign Types', // "Both", "PMax Only", "Shopping Only"
+            'Total Products', '% Products in Both',
+            'PMax Only Products', // will hide
+            'Shopping Only Products', // will hide
+            'Active PMax Campaigns', 'Active Shopping Campaigns',
+            '% Cost PMax', '% Conversions PMax', '% Value PMax',
+            'Better ROAS', 'Better AOV',
+            // Raw data columns (will hide)
+            'PMax Cost', 'PMax Conv', 'PMax Value', 'PMax ROAS', 'PMax AOV',
+            'Shopping Cost', 'Shopping Conv', 'Shopping Value', 'Shopping ROAS', 'Shopping AOV'
+        ]
+    }
+};
+
+const TEMPLATE_URL = 'https://docs.google.com/spreadsheets/d/1u67oj3E--vk56CXSxt51PF5pTBezpRW7jSX9dm6tKpM/';
+
+function setupSpreadsheet() {
+    if (!SHEET_URL) {
+        let templateSS = SpreadsheetApp.openByUrl(TEMPLATE_URL);
+        let ss = templateSS.copy("Product Performance Report " + new Date().toLocaleDateString());
+        Logger.log("****\nNo SHEET_URL provided. A copy of the template has been created\n****\n" + ss.getUrl() + "\n****");
+        return ss;
+    }
+    Logger.log("Using the provided spreadsheet: " + SHEET_URL);
+    return SpreadsheetApp.openByUrl(SHEET_URL);
+}
+
+const getOrCreateSheet = (ss, name) => ss.getSheetByName(name) || ss.insertSheet(name);
+
+const calculateMetrics = campaigns => {
+    let metrics = { cost: 0, conversions: 0, value: 0, count: 0, activeCount: 0 };
+    for (const row of campaigns) {
+        metrics.cost += parseFloat(row['metrics.cost_micros'] || 0) / 1000000;
+        metrics.conversions += parseFloat(row['metrics.conversions'] || 0);
+        metrics.value += parseFloat(row['metrics.conversions_value'] || 0);
+        metrics.count++;
+        if (parseInt(row['metrics.impressions']) > 0) {
+            metrics.activeCount++;
+        }
+    }
+
+    const roas = metrics.cost > 0 ? metrics.value / metrics.cost : 0;
+    const aov = metrics.conversions > 0 ? metrics.value / metrics.conversions : 0;
+
+    return {
+        ...metrics,
+        roas: roas.toFixed(2),
+        aov: aov.toFixed(2),
+        cost: metrics.cost.toFixed(2),
+        conversions: metrics.conversions.toFixed(2),
+        value: metrics.value.toFixed(2)
+    };
+};
+
+const compareValues = (val1, val2, threshold = 0.05) => {
+    if (!val1 || !val2) return 'N/A';
+    const ratio = val1 / val2;
+    if (Math.abs(1 - ratio) <= threshold) return 'Same';
+    return ratio > 1 ? 'PMax' : 'Shopping';
+};
+
+const calculatePercentage = (part, total) => {
+    if (!total) return 0;
+    return (part / total * 100).toFixed(1);
+};
+
+const analyzeProductDistribution = productRows => {
+    const pmaxProducts = new Set();
+    const shoppingProducts = new Set();
+
+    for (const row of productRows) {
+        const productId = row['segments.product_item_id'];
+        if (row['campaign.advertising_channel_type'] === 'PERFORMANCE_MAX') {
+            pmaxProducts.add(productId);
+        } else {
+            shoppingProducts.add(productId);
+        }
+    }
+
+    const inBoth = new Set([...pmaxProducts].filter(x => shoppingProducts.has(x)));
+    const pmaxOnly = new Set([...pmaxProducts].filter(x => !shoppingProducts.has(x)));
+    const shoppingOnly = new Set([...shoppingProducts].filter(x => !pmaxProducts.has(x)));
+    const total = pmaxProducts.size + shoppingOnly.size;
+
+    return {
+        inBoth: inBoth.size,
+        pmaxOnly: pmaxOnly.size,
+        shoppingOnly: shoppingOnly.size,
+        total,
+        percentInBoth: calculatePercentage(inBoth.size, total)
+    };
+};
+
+const processProductData = (account, productReport, campaignReport) => {
+    const campaigns = [...campaignReport.rows()];
+    const pmaxCampaigns = campaigns.filter(row => row['campaign.advertising_channel_type'] === 'PERFORMANCE_MAX');
+    const shoppingCampaigns = campaigns.filter(row => row['campaign.advertising_channel_type'] === 'SHOPPING');
+
+    const pmaxMetrics = calculateMetrics(pmaxCampaigns);
+    const shoppingMetrics = calculateMetrics(shoppingCampaigns);
+
+    const productDist = analyzeProductDistribution([...productReport.rows()]);
+
+    // Determine campaign type category
+    let campaignTypes = "None";
+    if (pmaxMetrics.activeCount > 0 && shoppingMetrics.activeCount > 0) {
+        campaignTypes = "Both";
+    } else if (pmaxMetrics.activeCount > 0) {
+        campaignTypes = "PMax Only";
+    } else if (shoppingMetrics.activeCount > 0) {
+        campaignTypes = "Shopping Only";
+    }
+
+    const totalCost = parseFloat(pmaxMetrics.cost) + parseFloat(shoppingMetrics.cost);
+    const totalConv = parseFloat(pmaxMetrics.conversions) + parseFloat(shoppingMetrics.conversions);
+    const totalValue = parseFloat(pmaxMetrics.value) + parseFloat(shoppingMetrics.value);
+
+    return {
+        campaignTypes,
+        pmaxCost: parseFloat(pmaxMetrics.cost),
+        row: [
+            account.getCustomerId(),
+            account.getName(),
+            campaignTypes,
+            productDist.total,
+            productDist.percentInBoth,
+            productDist.pmaxOnly,
+            productDist.shoppingOnly,
+            pmaxMetrics.activeCount,
+            shoppingMetrics.activeCount,
+            calculatePercentage(parseFloat(pmaxMetrics.cost), totalCost),
+            calculatePercentage(parseFloat(pmaxMetrics.conversions), totalConv),
+            calculatePercentage(parseFloat(pmaxMetrics.value), totalValue),
+            compareValues(parseFloat(pmaxMetrics.roas), parseFloat(shoppingMetrics.roas)),
+            compareValues(parseFloat(pmaxMetrics.aov), parseFloat(shoppingMetrics.aov)),
+            // Raw data (will hide)
+            pmaxMetrics.cost,
+            pmaxMetrics.conversions,
+            pmaxMetrics.value,
+            pmaxMetrics.roas,
+            pmaxMetrics.aov,
+            shoppingMetrics.cost,
+            shoppingMetrics.conversions,
+            shoppingMetrics.value,
+            shoppingMetrics.roas,
+            shoppingMetrics.aov
+        ]
+    };
+};
+
+const formatSheet = sheet => {
+    const [lastRow, lastCol] = [sheet.getLastRow(), sheet.getLastColumn()];
+    if (sheet.getMaxRows() > lastRow) sheet.deleteRows(lastRow + 1, sheet.getMaxRows() - lastRow);
+    if (sheet.getMaxColumns() > lastCol) sheet.deleteColumns(lastCol + 1, sheet.getMaxColumns() - lastCol);
+};
+
+const writeDataToSheet = (sheet, headers, data) => {
+    if (data.length) {
+        sheet.getRange(2, 2, data.length + 1, headers.length)
+            .setValues([headers, ...data]);
+        formatSheet(sheet);
+    }
+};
+
+function main() {
+    Logger.log("Script started at (PST) " + new Date().toLocaleString());
+    const ss = setupSpreadsheet();
+    const sheet = getOrCreateSheet(ss, 'product');
+
+    Logger.log("Clearing existing data...");
+    try {
+        if (sheet.getLastRow() > 2) {
+            sheet.getRange(3, 2, sheet.getLastRow() - 2, sheet.getLastColumn()).clear();
+        }
+    } catch (error) {
+        console.error('Error clearing sheet:', error);
+    }
+
+    const productData = [];
+
+    if (typeof MccApp !== 'undefined') {
+        // MCC account
+        Logger.log("Running in MCC mode");
+        const accounts = MccApp.accounts().get();
+        let totalAccounts = 0;
+        let processedAccounts = 0;
+
+        // Count total accounts first
+        while (accounts.hasNext()) {
+            accounts.next();
+            totalAccounts++;
+        }
+
+        Logger.log(`Starting to process ${totalAccounts} accounts...`);
+
+        // Reset iterator
+        const accountIter = MccApp.accounts().get();
+        const logInterval = Math.max(1, Math.floor(totalAccounts / 20)); // Log roughly 20 times during execution
+
+        while (accountIter.hasNext()) {
+            const account = accountIter.next();
+            processedAccounts++;
+
+            // Log progress at intervals
+            if (processedAccounts % logInterval === 0) {
+                const percentComplete = ((processedAccounts / totalAccounts) * 100).toFixed(1);
+                Logger.log(`Progress: ${processedAccounts}/${totalAccounts} accounts (${percentComplete}%)`);
+            }
+
+            processAccount(account, productData, processedAccounts, totalAccounts);
+        }
+    } else {
+        // Single account
+        Logger.log("Running in single account mode");
+        const account = AdsApp.currentAccount();
+        processAccount(account, productData, 1, 1);
+    }
+
+    Logger.log("Finished processing accounts. Starting to sort and categorize data...");
+
+    // Group and sort data
+    const bothTypes = [];
+    const pmaxOnly = [];
+    const shoppingOnly = [];
+
+    productData.forEach(data => {
+        if (data.campaignTypes === "Both") bothTypes.push(data);
+        else if (data.campaignTypes === "PMax Only") pmaxOnly.push(data);
+        else if (data.campaignTypes === "Shopping Only") shoppingOnly.push(data);
+    });
+
+    Logger.log(`Found:
+    ${bothTypes.length} accounts running both types
+    ${pmaxOnly.length} accounts running only PMax
+    ${shoppingOnly.length} accounts running only Shopping`);
+
+    // Sort each group
+    const sortByPMaxCost = (a, b) => b.pmaxCost - a.pmaxCost;
+    bothTypes.sort(sortByPMaxCost);
+    pmaxOnly.sort(sortByPMaxCost);
+    shoppingOnly.sort(sortByPMaxCost);
+
+    // Combine all data
+    const sortedData = [
+        ...bothTypes.map(({ row }) => row),
+        ...pmaxOnly.map(({ row }) => row),
+        ...shoppingOnly.map(({ row }) => row)
+    ];
+
+    Logger.log("Writing data to sheet...");
+    writeDataToSheet(sheet, QUERIES.product.headers, sortedData);
+    Logger.log("Script completed at " + new Date().toLocaleString());
+}
+
+function processAccount(account, productData, processedAccounts, totalAccounts) {
+    const accountName = account.getName();
+    const accountId = account.getCustomerId();
+
+    try {
+        if (typeof MccApp !== 'undefined') {
+            MccApp.select(account);
+        }
+
+        // Check cost after selecting the account
+        const costRow = AdsApp.report('SELECT metrics.cost_micros FROM customer WHERE segments.date DURING LAST_30_DAYS').rows().next();
+        const cost = parseFloat(costRow['metrics.cost_micros']) / 1000000;
+
+        if (cost > 0) {
+
+            const data = processProductData(
+                account,
+                AdsApp.report(QUERIES.product.productQuery),
+                AdsApp.report(QUERIES.product.campaignQuery)
+            );
+
+            if (data.campaignTypes !== "None") {
+                productData.push(data);
+            } else {
+                Logger.log(`No active shopping or performance max campaigns found in account ${accountName}`);
+            }
+        } 
+    } catch (error) {
+        Logger.log(`Error processing account ${accountName} (${accountId}): ${error.message}`);
+    }
+}
+
+
+// If you get any errors, copy the logs & paste them into a post at https://mikerhodes.circle.so/c/help/ 
+// and tag me so I can help you resolve it :)
+// Now hit preview (or run) and let's get this party started!
+
+
+// PS you're awesome! Thanks for using this script.
