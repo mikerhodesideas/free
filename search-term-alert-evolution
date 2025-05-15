@@ -1,0 +1,116 @@
+Here’s a concise Markdown document tracing how our “Search Term Watchdog” script evolved—each step unlocking new possibilities once the previous version was in place.
+
+---
+
+## 1. From Idea to First Draft
+
+**Original ask**:
+
+> `I made this big mistake, where I added a new and smart (I thought) negative keywords list, that ended up ruining the performance until today.
+>
+> The negative keywords were too broad, so they ended up blocking the brand + most of the converting search terms.
+>
+> I've called the client, admitted my mistake, and now I'm looking for a way, so that it never happens again.
+>
+> Do you know of a watchdog script, that can check the top performing search terms, and alert if there is a fall historically?.`
+
+**What this free script does**:
+
+* A single-account Google Ads Script
+* `TOP_N`, `EMAIL_ADDRESS`, `TESTING_MODE`, `SHEET_URL` constants
+* GAQL query for top N terms by cost
+* Bulk `setValues()` export to a sheet (auto-create if no URL)
+* Date ranges (last 7 days vs prior 30 days)
+* Simple **yellow** (50% drop) / **red** (80% drop) alerts on impressions & conversions
+* Email notifications (with test mode)
+
+---
+
+## 2. Fixing Early Bugs
+
+Once running, I hit a small bug:
+
+AI quickly fixed that & the script was working fine.
+
+---
+
+## 3. Simplifying Fetch Logic
+
+Original `fetchMetrics()` used an overly-complicated batching system (AI man!)
+
+**Improvement**:
+* Reduced complexity and execution overhead
+
+---
+
+## 4. Smarter Alert Thresholds
+
+Realized “0→0” or “0→1” (current vs baseline) shouldn’t trigger alerts on low‐volume terms.
+
+**Improvement**:
+* If **avg ≤ 2**, always mark **OK**
+* **Yellow** only if current / avg ≤ 20% (and avg > 2)
+* **Red** only if current = 0 (and avg > 2)
+
+---
+
+## 5. Account vs Campaign Aggregation
+
+Next, per-campaign monitoring.
+
+**Improvement**:
+* Introduced `AGGREGATION = 'ACCOUNT' | 'CAMPAIGN'`
+* Modified `getTopItems()` to pull `campaign name` when in CAMPAIGN mode
+* Updated output columns and email formatting accordingly
+
+---
+
+## 6. Robust Campaign Filtering
+
+Filtering by **name** proved brittle (special characters, renames).
+
+**Improvement**:
+* Switched filters to **`campaign.id`** in GAQL
+* Persisted human‐readable `campaignName` for sheet & email
+* Guaranteed stability even if names change
+
+---
+
+## 7. Fine-Grained Email Control & Reporting
+
+More control over when emails fire and a summary log.
+
+**Improvement**:
+* Added `EMAIL_ALERT_TRIGGER = 'ANY_ALERT' | 'YELLOW_OR_RED' | 'RED_ONLY'`
+* Email logic respects test mode and chosen trigger
+* Logged a **Search Term Analysis Summary** to show:
+  * Total analyzed
+  * Count for OK, Yellow, Red alerts
+
+---
+
+## 8. Configurable Alert Sensitivity
+
+The previous logic for smarter alert thresholds (step 4) hardcoded a value of `2` as the minimum average baseline conversions required to consider a term for an alert. To offer more flexibility:
+
+**Improvement**:
+* Introduced a new global constant `MIN_AVG_CONV_FOR_ALERT` (defaulting to `2`).
+* The alert logic now uses this constant instead of the hardcoded value.
+* Users can now easily adjust this threshold at the top of the script to suit their account's specific characteristics and alerting preferences for low-volume terms.
+
+---
+
+## 9. The Adjacent Possible
+
+Each iteration built on what was already working:
+
+1. **Working script →** fix critical GAQL bug
+2. **Stable fetch →** simplify batching
+3. **Simple alerts →** smarter thresholds for low-volume terms
+4. **Account-wide →** campaign-level insights
+5. **Name filters →** robust ID filtering
+6. **On/off switch →** email triggers & summary reporting
+7. **Configurable alert sensitivity →** new global constant
+
+This progression shows how small, validated changes unlock new capabilities.
+I think this is a useful example of the “adjacent possible” mindset.
