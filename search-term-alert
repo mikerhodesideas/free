@@ -22,7 +22,7 @@
 
 // ——— Configuration ———
 
-const SHEET_URL = 'https://docs.google.com/spreadsheets/d/1jXyh84HQxjaJ3lyr8G2JfM6QKT0IBWJ7SdTQ4J_Zg10/edit?gid=0#gid=0';
+const SHEET_URL = '';  // Enter your sheet url here (if you leave blank, a sheet will be created - find the new url in logs)
 
 const TOP_N = 100;  // Number of top items to monitor by cost
 
