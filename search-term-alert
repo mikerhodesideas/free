@@ -10,9 +10,14 @@
  *  - Enter your EMAIL_ADDRESS
  *  - Set TESTING_MODE to false once you're ready for live alerts
  *  - Switch AGGREGATION to 'ACCOUNT' or 'CAMPAIGN'
- *  - Set email trigger option
+ *  - Set email trigger option (see below)
  *  - Adjust MIN_AVG_CONV_FOR_ALERT if needed (min avg conversions to trigger alert checks)
+ *  - Adjust PERCENT_THRESHOLD if needed (percentage threshold for yellow alerts)
  * 
+ * EMAIL_ALERT_TRIGGER options:
+ *  - 'ALWAYS_REPORT': Sends an email every time the script runs.
+ *  - 'YELLOW_OR_RED': Sends an email if there are yellow or red alerts.
+ *  - 'RED_ONLY': Sends an email if there are red alerts only.
  * 
  * To read how this script came about, please visit 
  * https://github.com/mikerhodesideas/free/blob/main/search-term-alert-evolution
@@ -22,19 +27,22 @@
 
 // ——— Configuration ———
 
-const SHEET_URL = '';  // Enter your sheet url here (if you leave blank, a sheet will be created - find the new url in logs)
+const SHEET_URL               = '';           // Optional: Fill in to use an existing sheet, or leave blank to auto-create.
 
-const TOP_N = 100;  // Number of top items to monitor by cost
+const TOP_N                   = 100;          // Number of top items to monitor by cost
 
-const EMAIL_ADDRESS = '';  // Enter your email address here
+const EMAIL_ADDRESS           = '';           // *** IMPORTANT: Fill in your email address here ***
 
-const TESTING_MODE = true;  // set to false for real alerts only
+const TESTING_MODE            = true;         // set to false for real alerts only
 
-const AGGREGATION = 'ACCOUNT'; // 'ACCOUNT' or 'CAMPAIGN'
+const AGGREGATION             = 'ACCOUNT';    // 'ACCOUNT' or 'CAMPAIGN'
 
-const EMAIL_ALERT_TRIGGER = 'YELLOW_OR_RED'; // Options: 'ANY_ALERT', 'YELLOW_OR_RED', 'RED_ONLY'
+const EMAIL_ALERT_TRIGGER     = 'RED_ONLY';   // Options: 'ALWAYS_REPORT', 'YELLOW_OR_RED', 'RED_ONLY'
 
-const MIN_AVG_CONV_FOR_ALERT = 2; // Minimum average baseline conversions to consider for alerts
+const MIN_AVG_CONV_FOR_ALERT  = 2;            // Minimum average baseline conversions to consider for alerts
+
+const PERCENT_THRESHOLD       = 20;           // Percentage threshold for yellow alerts
+
 
 
 // ——— Main ———
@@ -99,7 +107,7 @@ function main() {
             if (currConv === 0) {
                 alert = 'RED';
                 redAlertCount++;
-            } else if ((currConv / avgBaseConv) <= 0.2) {
+            } else if ((currConv / avgBaseConv) <= (PERCENT_THRESHOLD / 100)) {
                 alert = 'YELLOW';
                 yellowAlertCount++;
             }
@@ -111,14 +119,23 @@ function main() {
 
         // build row (with or without campaign col)
         const row = AGGREGATION === 'CAMPAIGN'
-            ? [item.campaignName, item.term, currConv, avgBaseConv.toFixed(1),
+            ? [item.campaignName, item.term, currConv.toFixed(1), avgBaseConv.toFixed(1),
             avgBaseConv > 0 ? (currConv / avgBaseConv * 100).toFixed(0) + '%' : 'N/A',
                 alert]
-            : [item.term, currConv, avgBaseConv.toFixed(1),
+            : [item.term, currConv.toFixed(1), avgBaseConv.toFixed(1),
             avgBaseConv > 0 ? (currConv / avgBaseConv * 100).toFixed(0) + '%' : 'N/A',
                 alert];
 
         output.push(row);
+    });
+
+    // Sort the output by 'Avg Conv (7d)' descending
+    const avgConvSortIndex = AGGREGATION === 'CAMPAIGN' ? 3 : 2;
+    output.sort((a, b) => {
+        // Values in these columns are strings like "123.4" due to toFixed(1)
+        const valA = parseFloat(a[avgConvSortIndex]);
+        const valB = parseFloat(b[avgConvSortIndex]);
+        return valB - valA; // for descending order
     });
 
 
@@ -137,7 +154,7 @@ function main() {
 
     let shouldSendEmail = TESTING_MODE;
     if (!TESTING_MODE) {
-        if (EMAIL_ALERT_TRIGGER === 'ANY_ALERT' && hasAlert) {
+        if (EMAIL_ALERT_TRIGGER === 'ALWAYS_REPORT') {
             shouldSendEmail = true;
         } else if (EMAIL_ALERT_TRIGGER === 'YELLOW_OR_RED' && (yellowAlerts > 0 || redAlerts > 0)) {
             shouldSendEmail = true;
@@ -196,35 +213,56 @@ function makeKey(item) {
 }
 
 function getTopItems(limit) {
-    // Build SELECT + ORDER + LIMIT depending on aggregation
-    const select = AGGREGATION === 'CAMPAIGN'
-        ? 'campaign.id, campaign.name, search_term_view.search_term, metrics.cost_micros'
-        : 'search_term_view.search_term, metrics.cost_micros';
-
-    const query = `
-    SELECT ${select}
-    FROM search_term_view
-    WHERE segments.date DURING LAST_30_DAYS
-      AND campaign.advertising_channel_type = 'SEARCH'
-    ORDER BY metrics.cost_micros DESC
-    LIMIT ${limit}
-  `;
-
-    const it = AdsApp.search(query);
-    const items = [];
-    while (it.hasNext()) {
-        const row = it.next();
-        if (AGGREGATION === 'CAMPAIGN') {
-            items.push({
+    if (AGGREGATION === 'CAMPAIGN') {
+        const selectCampaign = 'campaign.id, campaign.name, search_term_view.search_term, metrics.cost_micros';
+        const queryCampaign = `
+          SELECT ${selectCampaign}
+          FROM search_term_view
+          WHERE segments.date DURING LAST_30_DAYS
+            AND campaign.advertising_channel_type = 'SEARCH'
+          ORDER BY metrics.cost_micros DESC
+          LIMIT ${limit}
+        `;
+        const itCampaign = AdsApp.search(queryCampaign);
+        const campaignItems = [];
+        while (itCampaign.hasNext()) {
+            const row = itCampaign.next();
+            campaignItems.push({
                 campaignId: row.campaign.id,
                 campaignName: row.campaign.name,
                 term: row.searchTermView.searchTerm
             });
-        } else {
-            items.push({ term: row.searchTermView.searchTerm });
         }
+        return campaignItems;
+    } else { // ACCOUNT mode
+        const selectAccount = 'search_term_view.search_term, metrics.cost_micros';
+        // Fetch more than 'limit' to ensure we can find 'limit' unique terms.
+        // This factor (e.g., 3) is a heuristic. Adjust if needed.
+        const queryAccountLimit = limit * 3;
+        const queryAccount = `
+          SELECT ${selectAccount}
+          FROM search_term_view
+          WHERE segments.date DURING LAST_30_DAYS
+            AND campaign.advertising_channel_type = 'SEARCH'
+          ORDER BY metrics.cost_micros DESC
+          LIMIT ${queryAccountLimit}
+        `;
+        const itAccount = AdsApp.search(queryAccount);
+        const accountItems = [];
+        const seenTerms = new Set();
+        while (itAccount.hasNext()) {
+            if (accountItems.length >= limit) {
+                break; // We have found enough unique terms
+            }
+            const row = itAccount.next();
+            const term = row.searchTermView.searchTerm;
+            if (!seenTerms.has(term)) {
+                accountItems.push({ term: term });
+                seenTerms.add(term);
+            }
+        }
+        return accountItems;
     }
-    return items;
 }
 
 
