@@ -1,0 +1,297 @@
+/**
+ * Search Term Watchdog Script
+ *
+ * Monitors your top search terms for drops in conversions,
+ * either across the whole account or per search campaign.
+ *
+ * Instructions:
+ *  - (Optional) Fill in SHEET_URL; leave blank to auto-create a sheet
+ *  - Adjust TOP_N to monitor a different number of terms
+ *  - Enter your EMAIL_ADDRESS
+ *  - Set TESTING_MODE to false once you're ready for live alerts
+ *  - Switch AGGREGATION to 'ACCOUNT' or 'CAMPAIGN'
+ *  - Set email trigger option
+ *  - Adjust MIN_AVG_CONV_FOR_ALERT if needed (min avg conversions to trigger alert checks)
+ * 
+ * 
+ * To read how this script came about, please visit 
+ * https://github.com/mikerhodesideas/free/blob/main/search-term-alert-evolution
+ * 
+ */
+
+
+// ——— Configuration ———
+
+const SHEET_URL = 'https://docs.google.com/spreadsheets/d/1jXyh84HQxjaJ3lyr8G2JfM6QKT0IBWJ7SdTQ4J_Zg10/edit?gid=0#gid=0';
+
+const TOP_N = 100;  // Number of top items to monitor by cost
+
+const EMAIL_ADDRESS = 'mike@mikerhodes.com.au';
+
+const TESTING_MODE = true;  // set to false for real alerts only
+
+const AGGREGATION = 'CAMPAIGN'; // 'ACCOUNT' or 'CAMPAIGN'
+
+const EMAIL_ALERT_TRIGGER = 'YELLOW_OR_RED'; // Options: 'ANY_ALERT', 'YELLOW_OR_RED', 'RED_ONLY'
+
+const MIN_AVG_CONV_FOR_ALERT = 2; // Minimum average baseline conversions to consider for alerts
+
+
+// ——— Main ———
+
+function main() {
+    const timezone = AdsApp.currentAccount().getTimeZone();
+    const ss = getSpreadsheet();
+    const sheet = ss.getActiveSheet();
+    sheet.clear();
+
+    // 1) Get top terms (with optional campaign)
+    const topItems = getTopItems(TOP_N);
+
+    if (!topItems.length) {
+        Logger.log('No data found.');
+        return;
+    }
+
+    // 2) Build date ranges
+    const now = new Date();
+    const fmt = d => Utilities.formatDate(d, timezone, 'yyyyMMdd');
+
+    const endCurr = new Date(now); // Create a new Date object based on 'now'
+    endCurr.setDate(now.getDate() - 1); // Yesterday
+
+    const startCurr = new Date(now); // Create a new Date object based on 'now'
+    startCurr.setDate(now.getDate() - 8); // 8 days ago
+
+    const endBase = new Date(startCurr); // Create a new Date object based on 'startCurr'
+    endBase.setDate(startCurr.getDate() - 1); // 1 day before startCurr
+
+    const startBase = new Date(endBase); // Create a new Date object based on 'endBase'
+    startBase.setDate(endBase.getDate() - (13 * 7)); // 13 weeks (91 days) before endBase
+
+    const currRange = `WHERE segments.date BETWEEN "${fmt(startCurr)}" AND "${fmt(endCurr)}"`;
+    const baseRange = `WHERE segments.date BETWEEN "${fmt(startBase)}" AND "${fmt(endBase)}"`;
+    Logger.log(`Date ranges: ${currRange} and ${baseRange}`);
+
+    // 3) Fetch current & baseline metrics
+    const currData = fetchMetrics(topItems, currRange);
+    const baseData = fetchMetrics(topItems, baseRange);
+
+    // 4) Combine & determine alerts
+    // …inside main(), after fetching currData & baseData…
+
+    const output = [];
+    let hasAlert = false;
+    let analyzedCount = 0;
+    let okCount = 0;
+    let yellowAlertCount = 0;
+    let redAlertCount = 0;
+
+    topItems.forEach(item => {
+        analyzedCount++;
+        const key = makeKey(item);
+        const currConv = (currData[key]?.conversions) || 0;
+        const avgBaseConv = ((baseData[key]?.conversions) || 0) / 13;
+
+        let alert = 'OK';
+
+        if (avgBaseConv > MIN_AVG_CONV_FOR_ALERT) {
+            if (currConv === 0) {
+                alert = 'RED';
+                redAlertCount++;
+            } else if ((currConv / avgBaseConv) <= 0.2) {
+                alert = 'YELLOW';
+                yellowAlertCount++;
+            }
+        }
+        if (alert === 'OK') {
+            okCount++;
+        }
+        if (alert !== 'OK') hasAlert = true;
+
+        // build row (with or without campaign col)
+        const row = AGGREGATION === 'CAMPAIGN'
+            ? [item.campaignName, item.term, currConv, avgBaseConv.toFixed(1),
+            avgBaseConv > 0 ? (currConv / avgBaseConv * 100).toFixed(0) + '%' : 'N/A',
+                alert]
+            : [item.term, currConv, avgBaseConv.toFixed(1),
+            avgBaseConv > 0 ? (currConv / avgBaseConv * 100).toFixed(0) + '%' : 'N/A',
+                alert];
+
+        output.push(row);
+    });
+
+
+    // 5) Write headers + data
+    const headers = AGGREGATION === 'CAMPAIGN'
+        ? ['Campaign', 'Search Term', 'Conv (7d)', 'Avg Conv (7d)', 'Δ Conv', 'Alert']
+        : ['Search Term', 'Conv (7d)', 'Avg Conv (7d)', 'Δ Conv', 'Alert'];
+
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sheet.getRange(2, 1, output.length, headers.length).setValues(output);
+
+    // 6) Send email if in testing mode or if any alerts based on EMAIL_ALERT_TRIGGER
+    let emailSent = false;
+    const redAlerts = output.filter(row => row[row.length - 1] === 'RED').length;
+    const yellowAlerts = output.filter(row => row[row.length - 1] === 'YELLOW').length;
+
+    let shouldSendEmail = TESTING_MODE;
+    if (!TESTING_MODE) {
+        if (EMAIL_ALERT_TRIGGER === 'ANY_ALERT' && hasAlert) {
+            shouldSendEmail = true;
+        } else if (EMAIL_ALERT_TRIGGER === 'YELLOW_OR_RED' && (yellowAlerts > 0 || redAlerts > 0)) {
+            shouldSendEmail = true;
+        } else if (EMAIL_ALERT_TRIGGER === 'RED_ONLY' && redAlerts > 0) {
+            shouldSendEmail = true;
+        }
+    }
+
+    if (shouldSendEmail) {
+        const subject = TESTING_MODE ? '[TEST] Watchdog Report' : 'Search Term Watchdog Alerts';
+        const body = [
+            `Sheet URL: ${ss.getUrl()}`,
+            '',
+            'Top items and their conv changes:',
+            AGGREGATION === 'CAMPAIGN'
+                ? 'Campaign | Term | Δ Conv | Alert'
+                : 'Term | Δ Conv | Alert'
+        ];
+        output.slice(0, 10).forEach(r => {
+            body.push(r.join(' | '));
+        });
+        MailApp.sendEmail(EMAIL_ADDRESS, subject, body.join('\n'));
+        emailSent = true;
+    }
+
+    if (emailSent) {
+        Logger.log('Email sent to: ' + EMAIL_ADDRESS);
+    } else {
+        Logger.log('No email sent based on current alert trigger (' + EMAIL_ALERT_TRIGGER + ') and alert status.');
+    }
+
+    Logger.log('Search Term Analysis Summary:');
+    Logger.log('- Total terms analyzed: ' + analyzedCount);
+    Logger.log('- Terms OK: ' + okCount);
+    Logger.log('- Yellow Alerts: ' + yellowAlertCount);
+    Logger.log('- Red Alerts: ' + redAlertCount);
+
+    Logger.log('Done.');
+}
+
+// ——— Helpers ———
+
+function getSpreadsheet() {
+    if (SHEET_URL && SHEET_URL.trim()) {
+        return SpreadsheetApp.openByUrl(SHEET_URL);
+    }
+    const ss = SpreadsheetApp.create('Search Term Watchdog');
+    Logger.log('Created new spreadsheet: ' + ss.getUrl());
+    return ss;
+}
+
+function makeKey(item) {
+    return AGGREGATION === 'CAMPAIGN'
+        ? `${item.campaignId}||${item.term}`
+        : item.term;
+}
+
+function getTopItems(limit) {
+    // Build SELECT + ORDER + LIMIT depending on aggregation
+    const select = AGGREGATION === 'CAMPAIGN'
+        ? 'campaign.id, campaign.name, search_term_view.search_term, metrics.cost_micros'
+        : 'search_term_view.search_term, metrics.cost_micros';
+
+    const query = `
+    SELECT ${select}
+    FROM search_term_view
+    WHERE segments.date DURING LAST_30_DAYS
+      AND campaign.advertising_channel_type = 'SEARCH'
+    ORDER BY metrics.cost_micros DESC
+    LIMIT ${limit}
+  `;
+
+    const it = AdsApp.search(query);
+    const items = [];
+    while (it.hasNext()) {
+        const row = it.next();
+        if (AGGREGATION === 'CAMPAIGN') {
+            items.push({
+                campaignId: row.campaign.id,
+                campaignName: row.campaign.name,
+                term: row.searchTermView.searchTerm
+            });
+        } else {
+            items.push({ term: row.searchTermView.searchTerm });
+        }
+    }
+    return items;
+}
+
+
+function fetchMetrics(items, dateRange) {
+    const result = {};
+    if (!items.length) return result;
+
+    if (AGGREGATION === 'ACCOUNT') {
+        // single IN() clause on terms only
+        const escaped = items
+            .map(it => `"${it.term.replace(/"/g, '\\"')}"`)
+            .join(',');
+        const query = `
+        SELECT
+          search_term_view.search_term,
+          metrics.conversions
+        FROM search_term_view
+        ${dateRange}
+          AND search_term_view.search_term IN (${escaped})
+      `;
+        const it = AdsApp.search(query);
+        while (it.hasNext()) {
+            const row = it.next();
+            const term = row.searchTermView.searchTerm;
+            const conv = Number(row.metrics.conversions) || 0;
+            result[term] = (result[term] || 0) + conv;
+        }
+    } else {
+        // CAMPAIGN mode: query per campaignId/term
+        items.forEach(item => {
+            const key = `${item.campaignId}||${item.term}`;
+            const termEsc = `"${item.term.replace(/"/g, '\\"')}"`;
+
+            const query = `
+          SELECT
+            campaign.id,
+            search_term_view.search_term,
+            metrics.conversions
+          FROM search_term_view
+          ${dateRange}
+            AND campaign.id = ${item.campaignId}
+            AND search_term_view.search_term = ${termEsc}
+        `;
+            const it = AdsApp.search(query);
+            let total = 0;
+            while (it.hasNext()) {
+                total += Number(it.next().metrics.conversions) || 0;
+            }
+            result[key] = total;
+        });
+    }
+
+    // Normalize into { conversions } objects, and keep the original campaignName
+    const normalized = {};
+    items.forEach(item => {
+        const key = AGGREGATION === 'CAMPAIGN'
+            ? `${item.campaignId}||${item.term}`
+            : item.term;
+        normalized[key] = {
+            conversions: result[key] || 0,
+            campaignName: item.campaignName  // undefined in ACCOUNT mode
+        };
+    });
+    return normalized;
+}
+
+// Thanks for using this script
+// For more free scripts, head to https://8020agent.com/4cs
+
+// PS You're awesome!
