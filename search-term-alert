@@ -26,11 +26,11 @@ const SHEET_URL = '';  // Enter your sheet url here (if you leave blank, a sheet
 
 const TOP_N = 100;  // Number of top items to monitor by cost
 
-const EMAIL_ADDRESS = 'mike@mikerhodes.com.au';
+const EMAIL_ADDRESS = '';  // Enter your email address here
 
 const TESTING_MODE = true;  // set to false for real alerts only
 
-const AGGREGATION = 'CAMPAIGN'; // 'ACCOUNT' or 'CAMPAIGN'
+const AGGREGATION = 'ACCOUNT'; // 'ACCOUNT' or 'CAMPAIGN'
 
 const EMAIL_ALERT_TRIGGER = 'YELLOW_OR_RED'; // Options: 'ANY_ALERT', 'YELLOW_OR_RED', 'RED_ONLY'
 
