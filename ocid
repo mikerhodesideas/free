@@ -1,0 +1,272 @@
+/**
+ * Google Ads Deeplinks Generator
+ * 
+ * Based on the technique discovered by Jonas Baek, Partner & Head of Tech Product at Precis Digital
+ * This script extracts the account OCID from the optimization_score_url and uses it to generate
+ * deeplinks to various sections of Google Ads.
+ */
+
+// Use the provided spreadsheet URL
+const SHEET_URL = ''; // enter your sheet url here - if blank a sheet will be created for you. check the logs for your url
+
+function main() {
+  const ocid = getAccountOcid();
+  
+  // Initialize spreadsheet
+  let ss;
+  let sheet;
+  
+  try {
+    ss = SpreadsheetApp.openByUrl(SHEET_URL);
+    sheet = ss.getActiveSheet();
+    // Clear existing content but keep the sheet
+    sheet.clear();
+    Logger.log('Using existing spreadsheet: ' + SHEET_URL);
+  } catch (e) {
+    Logger.log('Error opening spreadsheet: ' + e);
+    Logger.log('Creating new spreadsheet instead.');
+    ss = SpreadsheetApp.create('Google Ads Deeplinks');
+    sheet = ss.getActiveSheet();
+  }
+  
+  // Get campaign performance data and types for the last 30 days
+  const campaignData = getCampaignData(30);
+  
+  // Create arrays to store all data for more efficient writing
+  const values = [];
+  
+  // Add header row with detailed columns
+  values.push([
+    'Section', 
+    'Campaign Type', 
+    'Description', 
+    'Deeplink', 
+    'Cost (Last 30 Days)',
+    'Campaign ID'
+  ]);
+  
+  // 1. ACCOUNT-LEVEL LINKS
+  values.push([
+    'All Campaigns', 
+    'Account', 
+    'Overview of all campaigns', 
+    `https://ads.google.com/aw/campaigns?ocid=${ocid}`, 
+    '',
+    ''
+  ]);
+  
+  values.push([
+    'Account Auction Insights', 
+    'Account', 
+    'View auction insights for your account', 
+    `https://ads.google.com/aw/insights/auctioninsights?ocid=${ocid}&ascid=${ocid}`, 
+    '',
+    ''
+  ]);
+  
+  values.push([
+    'Scripts', 
+    'Account', 
+    'All Google Ads scripts', 
+    `https://ads.google.com/aw/bulk/scripts/management?ocid=${ocid}`, 
+    '',
+    ''
+  ]);
+  
+  values.push([
+    'Ad Assets', 
+    'Account', 
+    'View and manage ad assets', 
+    `https://ads.google.com/aw/assetlibrary?ocid=${ocid}`, 
+    '',
+    ''
+  ]);
+  
+  values.push([
+    'Recommendations', 
+    'Account', 
+    'View account recommendations', 
+    `https://ads.google.com/aw/recommendations?ocid=${ocid}`, 
+    '',
+    ''
+  ]);
+  
+  // 2. GATHER CAMPAIGN LINKS - ONLY FOR CAMPAIGNS WITH COST > 0
+  const campaignLinks = [];
+  const auctionInsightsLinks = [];
+  
+  for (const [id, info] of Object.entries(campaignData)) {
+    const name = info.name;
+    const type = info.type;
+    const cost = info.cost;
+    
+    // Only include campaigns with cost > 0
+    if (parseFloat(cost) > 0) {
+      // Add campaign link
+      campaignLinks.push([
+        `Campaign: ${name}`, 
+        type,
+        `Direct link to campaign ${name}`, 
+        `https://ads.google.com/aw/campaigns?ocid=${ocid}&campaignId=${id}`,
+        cost,
+        id
+      ]);
+      
+      // Add auction insights link (only one per campaign, regardless of type)
+      auctionInsightsLinks.push([
+        `Auction Insights: ${name}`, 
+        type,
+        `Auction insights for campaign ${name}`, 
+        `https://ads.google.com/aw/insights/auctioninsights?campaignId=${id}&ocid=${ocid}&ascid=${ocid}`,
+        cost,
+        id
+      ]);
+    }
+  }
+  
+  // Sort campaign links by cost (descending)
+  campaignLinks.sort((a, b) => parseFloat(b[4] || 0) - parseFloat(a[4] || 0));
+  
+  // Sort auction insights links by cost (descending)
+  auctionInsightsLinks.sort((a, b) => parseFloat(b[4] || 0) - parseFloat(a[4] || 0));
+  
+  // Add campaign links to values
+  values.push(...campaignLinks);
+  
+  // Add auction insights links to values
+  values.push(...auctionInsightsLinks);
+  
+  // Write all data at once
+  sheet.getRange(1, 1, values.length, 6).setValues(values);
+  
+  // Format the sheet for better readability
+  sheet.autoResizeColumns(1, 6);
+  
+  // Apply some basic formatting
+  sheet.getRange(1, 1, 1, 6).setFontWeight("bold");
+  sheet.getRange(1, 5, values.length, 1).setNumberFormat("$#,##0.00");
+  
+  Logger.log('Sheet with Google Ads Deeplinks: ');
+  Logger.log(ss.getUrl());
+}
+
+/**
+ * Gets campaign data including costs and types for the specified number of days
+ * @param {number} days - Number of days to look back
+ * @return {Object} Map of campaign IDs to their data
+ */
+function getCampaignData(days) {
+  const campaignData = {};
+  
+  // Calculate date range
+  const today = new Date();
+  const startDate = new Date(today);
+  startDate.setDate(today.getDate() - days);
+  
+  // Format dates for GAQL
+  const startDateStr = formatDate(startDate);
+  const endDateStr = formatDate(today);
+  
+  // Get campaign metadata (name and type)
+  const metadataQuery = `SELECT campaign.id, campaign.name, campaign.advertising_channel_type 
+                         FROM campaign`;
+  
+  try {
+    const metadataReport = AdsApp.report(metadataQuery);
+    const metadataRows = metadataReport.rows();
+    
+    while (metadataRows.hasNext()) {
+      const row = metadataRows.next();
+      const campaignId = row['campaign.id'];
+      const campaignName = row['campaign.name'];
+      const channelType = row['campaign.advertising_channel_type'];
+      
+      // Convert API channel type to friendly name
+      let campaignType = channelType;
+      if (channelType === "PERFORMANCE_MAX") {
+        campaignType = "Performance Max";
+      } else if (channelType === "SEARCH") {
+        campaignType = "Search";
+      } else if (channelType === "SHOPPING") {
+        campaignType = "Shopping";
+      } else if (channelType === "DISPLAY") {
+        campaignType = "Display";
+      } else if (channelType === "VIDEO") {
+        campaignType = "Video";
+      }
+      
+      campaignData[campaignId] = {
+        name: campaignName,
+        type: campaignType,
+        cost: "0.00"
+      };
+    }
+  } catch (e) {
+    Logger.log('Error getting campaign metadata: ' + e);
+  }
+  
+  // Get campaign costs
+  const costQuery = `SELECT campaign.id, metrics.cost_micros 
+                     FROM campaign 
+                     WHERE segments.date BETWEEN '${startDateStr}' AND '${endDateStr}'`;
+  
+  try {
+    const costReport = AdsApp.report(costQuery);
+    const costRows = costReport.rows();
+    
+    while (costRows.hasNext()) {
+      const row = costRows.next();
+      const campaignId = row['campaign.id'];
+      const costMicros = parseFloat(row['metrics.cost_micros'] || 0);
+      const cost = (costMicros / 1000000).toFixed(2); // Convert micros to currency
+      
+      if (campaignData[campaignId]) {
+        // Add to existing cost if the campaign already exists
+        const currentCost = parseFloat(campaignData[campaignId].cost || 0);
+        campaignData[campaignId].cost = (currentCost + parseFloat(cost)).toFixed(2);
+      }
+    }
+  } catch (e) {
+    Logger.log('Error getting campaign costs: ' + e);
+  }
+  
+  return campaignData;
+}
+
+/**
+ * Formats a date object as YYYY-MM-DD for GAQL queries
+ */
+function formatDate(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * Extracts the account OCID from optimization_score_url using SQL query
+ * Based on Jonas Baek's technique
+ * @return {string} The account OCID for deeplinks
+ */
+function getAccountOcid() {
+  // Query to fetch the optimization_score_url which contains the ocid
+  const query = "SELECT metrics.optimization_score_url FROM customer";
+  const report = AdsApp.report(query);
+  
+  // Get the first row since we only need one instance of the URL
+  const rows = report.rows();
+  if (rows.hasNext()) {
+    const row = rows.next();
+    const url = row['metrics.optimization_score_url'];
+    
+    // Extract the OCID using regex
+    const match = url.match(/ocid=([^&]+)/);
+    if (match && match[1]) {
+      return match[1];
+    }
+  }
+  
+  // Fallback in case the query doesn't return expected results
+  Logger.log('Could not extract OCID from optimization_score_url');
+  return null;
+}
