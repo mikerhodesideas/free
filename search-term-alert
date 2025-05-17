@@ -2,12 +2,13 @@
  * Search Term Watchdog Script
  *
  * Monitors your top search terms for drops in conversions,
- * either across the whole account or per search campaign.
+ * either across the whole account or per search/shopping campaign.
  *
  * Instructions:
  *  - (Optional) Fill in SHEET_URL; leave blank to auto-create a sheet
  *  - Adjust TOP_N to monitor a different number of terms
  *  - Enter your EMAIL_ADDRESS
+ *  - Set CAMP_TYPE to 'SEARCH', 'SHOPPING', or 'BOTH'
  *  - Set TESTING_MODE to false once you're ready for live alerts
  *  - Switch AGGREGATION to 'ACCOUNT' or 'CAMPAIGN'
  *  - Set email trigger option (see below)
@@ -25,27 +26,33 @@
  */
 
 
+
 // ——— Configuration ———
 
-const SHEET_URL               = '';           // Optional: Fill in to use an existing sheet, or leave blank to auto-create.
+const SHEET_URL              = '';           // Optional: Fill in to use an existing sheet, or leave blank to auto-create.
 
-const TOP_N                   = 100;          // Number of top items to monitor by cost
+const TOP_N                  = 100;          // Number of top items to monitor by cost
 
-const EMAIL_ADDRESS           = '';           // *** IMPORTANT: Fill in your email address here ***
+const EMAIL_ADDRESS          = '';           // *** IMPORTANT: Fill in your email address here ***
 
-const TESTING_MODE            = true;         // set to false for real alerts only
+const CAMP_TYPE              = 'BOTH';       // Options: 'SEARCH', 'SHOPPING', or 'BOTH'
 
-const AGGREGATION             = 'ACCOUNT';    // 'ACCOUNT' or 'CAMPAIGN'
+const TESTING_MODE           = true;         // When true, sends test emails on every run regardless of alerts.
+                                             // Set to false for production use, where emails are sent only
+                                             // according to EMAIL_ALERT_TRIGGER settings.
 
-const EMAIL_ALERT_TRIGGER     = 'RED_ONLY';   // Options: 'ALWAYS_REPORT', 'YELLOW_OR_RED', 'RED_ONLY'
+const AGGREGATION            = 'ACCOUNT';    // 'ACCOUNT' or 'CAMPAIGN'
 
-const MIN_AVG_CONV_FOR_ALERT  = 2;            // Minimum average baseline conversions to consider for alerts
+const EMAIL_ALERT_TRIGGER    = 'RED_ONLY';   // Options: 'ALWAYS_REPORT', 'YELLOW_OR_RED', 'RED_ONLY'
 
-const PERCENT_THRESHOLD       = 20;           // Percentage threshold for yellow alerts
+const MIN_AVG_CONV_FOR_ALERT = 2;            // Minimum average baseline conversions to consider for alerts
+
+const PERCENT_THRESHOLD      = 20;           // Percentage threshold for yellow alerts
 
 
 
-// ——— Main ———
+
+// ——— Main ——— Please do not edit code below this line ———
 
 function main() {
     // Check if email address is provided
@@ -57,6 +64,12 @@ function main() {
         return; // Exit early if no email address
     }
 
+    // Validate CAMP_TYPE
+    if (!['SEARCH', 'SHOPPING', 'BOTH'].includes(CAMP_TYPE)) {
+        Logger.log('⚠️ ERROR: Invalid CAMP_TYPE! Must be "SEARCH", "SHOPPING", or "BOTH".');
+        return;
+    }
+
     const timezone = AdsApp.currentAccount().getTimeZone();
     const ss = getSpreadsheet();
     const sheet = ss.getActiveSheet();
@@ -66,7 +79,7 @@ function main() {
     const topItems = getTopItems(TOP_N);
 
     if (!topItems.length) {
-        Logger.log('No data found.');
+        Logger.log('No data found for the specified campaign type(s).');
         return;
     }
 
@@ -126,20 +139,31 @@ function main() {
         }
         if (alert !== 'OK') hasAlert = true;
 
-        // build row (with or without campaign col)
-        const row = AGGREGATION === 'CAMPAIGN'
-            ? [item.campaignName, item.term, currConv.toFixed(1), avgBaseConv.toFixed(1),
-            avgBaseConv > 0 ? (currConv / avgBaseConv * 100).toFixed(0) + '%' : 'N/A',
-                alert]
-            : [item.term, currConv.toFixed(1), avgBaseConv.toFixed(1),
-            avgBaseConv > 0 ? (currConv / avgBaseConv * 100).toFixed(0) + '%' : 'N/A',
-                alert];
+        // build row (with or without campaign col and campaign type)
+        let row;
+        if (AGGREGATION === 'CAMPAIGN') {
+            row = CAMP_TYPE === 'BOTH'
+                ? [item.campaignName, item.campaignType, item.term, currConv.toFixed(1), avgBaseConv.toFixed(1),
+                avgBaseConv > 0 ? (currConv / avgBaseConv * 100).toFixed(0) + '%' : 'N/A', alert]
+                : [item.campaignName, item.term, currConv.toFixed(1), avgBaseConv.toFixed(1),
+                avgBaseConv > 0 ? (currConv / avgBaseConv * 100).toFixed(0) + '%' : 'N/A', alert];
+        } else {
+            row = CAMP_TYPE === 'BOTH'
+                ? [item.term, item.campaignType, currConv.toFixed(1), avgBaseConv.toFixed(1),
+                avgBaseConv > 0 ? (currConv / avgBaseConv * 100).toFixed(0) + '%' : 'N/A', alert]
+                : [item.term, currConv.toFixed(1), avgBaseConv.toFixed(1),
+                avgBaseConv > 0 ? (currConv / avgBaseConv * 100).toFixed(0) + '%' : 'N/A', alert];
+        }
 
         output.push(row);
     });
 
     // Sort the output by 'Avg Conv (7d)' descending
-    const avgConvSortIndex = AGGREGATION === 'CAMPAIGN' ? 3 : 2;
+    // Adjust sort index based on whether we have the campaign type column
+    const avgConvSortIndex = AGGREGATION === 'CAMPAIGN'
+        ? (CAMP_TYPE === 'BOTH' ? 4 : 3)
+        : (CAMP_TYPE === 'BOTH' ? 3 : 2);
+
     output.sort((a, b) => {
         // Values in these columns are strings like "123.4" due to toFixed(1)
         const valA = parseFloat(a[avgConvSortIndex]);
@@ -147,11 +171,17 @@ function main() {
         return valB - valA; // for descending order
     });
 
-
     // 5) Write headers + data
-    const headers = AGGREGATION === 'CAMPAIGN'
-        ? ['Campaign', 'Search Term', 'Conv (7d)', 'Avg Conv (7d)', 'Δ Conv', 'Alert']
-        : ['Search Term', 'Conv (7d)', 'Avg Conv (7d)', 'Δ Conv', 'Alert'];
+    let headers;
+    if (AGGREGATION === 'CAMPAIGN') {
+        headers = CAMP_TYPE === 'BOTH'
+            ? ['Campaign', 'Type', 'Search Term', 'Conv (7d)', 'Avg Conv (7d)', 'Δ Conv', 'Alert']
+            : ['Campaign', 'Search Term', 'Conv (7d)', 'Avg Conv (7d)', 'Δ Conv', 'Alert'];
+    } else {
+        headers = CAMP_TYPE === 'BOTH'
+            ? ['Search Term', 'Type', 'Conv (7d)', 'Avg Conv (7d)', 'Δ Conv', 'Alert']
+            : ['Search Term', 'Conv (7d)', 'Avg Conv (7d)', 'Δ Conv', 'Alert'];
+    }
 
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
     sheet.getRange(2, 1, output.length, headers.length).setValues(output);
@@ -178,24 +208,36 @@ function main() {
             const body = [
                 `Sheet URL: ${ss.getUrl()}`,
                 '',
+                `Campaign type analyzed: ${CAMP_TYPE}`,
+                '',
                 'Top items and their conv changes:',
-                AGGREGATION === 'CAMPAIGN'
-                    ? 'Campaign | Term | Δ Conv | Alert'
-                    : 'Term | Δ Conv | Alert'
+                // ... rest of the body construction
             ];
-            output.slice(0, 10).forEach(r => {
-                body.push(r.join(' | '));
-            });
+            
+            // Add more logging for debugging
+            Logger.log('Attempting to send email to: ' + EMAIL_ADDRESS);
+            Logger.log('Email subject: ' + subject);
+            
+            // Actually send the email
             MailApp.sendEmail(EMAIL_ADDRESS, subject, body.join('\n'));
+            
+            // If we get here without an error, the email was sent
             emailSent = true;
+            Logger.log('Email sent successfully.');
+        } else {
+            Logger.log('Not sending email based on current settings (shouldSendEmail: ' + shouldSendEmail + ')');
         }
     } catch (e) {
+        // More detailed error logging
         Logger.log('⚠️ ERROR: Failed to send email: ' + e.message);
-        Logger.log('Please ensure you have set a valid EMAIL_ADDRESS at the top of the script.');
+        Logger.log('Error details: ' + e.stack);
+        Logger.log('Please ensure you have the necessary permissions to send emails from scripts.');
+        Logger.log('Email address attempted: ' + EMAIL_ADDRESS);
     }
 
     // Print summary to logs regardless of email status
     Logger.log('\n📊 SEARCH TERM ANALYSIS SUMMARY:');
+    Logger.log('- Campaign type analyzed: ' + CAMP_TYPE);
     Logger.log('- Total terms analyzed: ' + analyzedCount);
     Logger.log('- Terms OK: ' + okCount);
     Logger.log('- Yellow Alerts: ' + yellowAlertCount);
@@ -232,13 +274,23 @@ function makeKey(item) {
 }
 
 function getTopItems(limit) {
+    // Determine the channel type filter based on CAMP_TYPE
+    let channelTypeFilter;
+
+    if (CAMP_TYPE === 'BOTH') {
+        // Avoid parentheses in the query
+        channelTypeFilter = ""; // No filter, we'll accept all types and filter later
+    } else {
+        channelTypeFilter = `AND campaign.advertising_channel_type = '${CAMP_TYPE}'`;
+    }
+
     if (AGGREGATION === 'CAMPAIGN') {
-        const selectCampaign = 'campaign.id, campaign.name, search_term_view.search_term, metrics.cost_micros';
+        const selectCampaign = 'campaign.id, campaign.name, campaign.advertising_channel_type, search_term_view.search_term, metrics.cost_micros';
         const queryCampaign = `
           SELECT ${selectCampaign}
           FROM search_term_view
           WHERE segments.date DURING LAST_30_DAYS
-            AND campaign.advertising_channel_type = 'SEARCH'
+            ${channelTypeFilter}
           ORDER BY metrics.cost_micros DESC
           LIMIT ${limit}
         `;
@@ -249,20 +301,22 @@ function getTopItems(limit) {
             campaignItems.push({
                 campaignId: row.campaign.id,
                 campaignName: row.campaign.name,
+                campaignType: row.campaign.advertisingChannelType,
                 term: row.searchTermView.searchTerm
             });
         }
         return campaignItems;
     } else { // ACCOUNT mode
-        const selectAccount = 'search_term_view.search_term, metrics.cost_micros';
+        // Different approach for account level - we need to get unique terms,
+        // but also track campaign type if CAMP_TYPE is 'BOTH'
+        const selectAccount = 'search_term_view.search_term, campaign.advertising_channel_type, metrics.cost_micros';
         // Fetch more than 'limit' to ensure we can find 'limit' unique terms.
-        // This factor (e.g., 3) is a heuristic. Adjust if needed.
         const queryAccountLimit = limit * 3;
         const queryAccount = `
           SELECT ${selectAccount}
           FROM search_term_view
           WHERE segments.date DURING LAST_30_DAYS
-            AND campaign.advertising_channel_type = 'SEARCH'
+            ${channelTypeFilter}
           ORDER BY metrics.cost_micros DESC
           LIMIT ${queryAccountLimit}
         `;
@@ -275,9 +329,23 @@ function getTopItems(limit) {
             }
             const row = itAccount.next();
             const term = row.searchTermView.searchTerm;
-            if (!seenTerms.has(term)) {
-                accountItems.push({ term: term });
-                seenTerms.add(term);
+
+            if (CAMP_TYPE === 'BOTH') {
+                // For 'BOTH', we need to handle terms that appear in both campaign types
+                // We'll take the first appearance of a term, but track its campaign type
+                if (!seenTerms.has(term)) {
+                    accountItems.push({
+                        term: term,
+                        campaignType: row.campaign.advertisingChannelType
+                    });
+                    seenTerms.add(term);
+                }
+            } else {
+                // For single campaign type, we just need unique terms
+                if (!seenTerms.has(term)) {
+                    accountItems.push({ term: term });
+                    seenTerms.add(term);
+                }
             }
         }
         return accountItems;
@@ -289,6 +357,15 @@ function fetchMetrics(items, dateRange) {
     const result = {};
     if (!items.length) return result;
 
+    // Determine the channel type filter based on CAMP_TYPE
+    let channelTypeFilter;
+
+    if (CAMP_TYPE === 'BOTH') {
+        channelTypeFilter = "";
+    } else {
+        channelTypeFilter = `AND campaign.advertising_channel_type = '${CAMP_TYPE}'`;
+    }
+
     if (AGGREGATION === 'ACCOUNT') {
         // single IN() clause on terms only
         const escaped = items
@@ -297,17 +374,30 @@ function fetchMetrics(items, dateRange) {
         const query = `
         SELECT
           search_term_view.search_term,
+          campaign.advertising_channel_type,
           metrics.conversions
         FROM search_term_view
         ${dateRange}
           AND search_term_view.search_term IN (${escaped})
+          ${channelTypeFilter}
       `;
         const it = AdsApp.search(query);
         while (it.hasNext()) {
             const row = it.next();
             const term = row.searchTermView.searchTerm;
+            const campaignType = row.campaign.advertisingChannelType;
             const conv = Number(row.metrics.conversions) || 0;
+
+            // For 'BOTH' mode, we need to aggregate across campaign types
             result[term] = (result[term] || 0) + conv;
+
+            // Also store the campaign type if needed for display
+            if (CAMP_TYPE === 'BOTH' && items.find(item => item.term === term)) {
+                const item = items.find(item => item.term === term);
+                if (item && !item.hasOwnProperty('campaignType')) {
+                    item.campaignType = campaignType;
+                }
+            }
         }
     } else {
         // CAMPAIGN mode: query per campaignId/term
@@ -324,6 +414,7 @@ function fetchMetrics(items, dateRange) {
           ${dateRange}
             AND campaign.id = ${item.campaignId}
             AND search_term_view.search_term = ${termEsc}
+            ${channelTypeFilter}
         `;
             const it = AdsApp.search(query);
             let total = 0;
@@ -334,15 +425,17 @@ function fetchMetrics(items, dateRange) {
         });
     }
 
-    // Normalize into { conversions } objects, and keep the original campaignName
+    // Normalize into { conversions } objects with extra properties
     const normalized = {};
     items.forEach(item => {
         const key = AGGREGATION === 'CAMPAIGN'
             ? `${item.campaignId}||${item.term}`
             : item.term;
+
         normalized[key] = {
-            conversions: result[key] || 0,
-            campaignName: item.campaignName  // undefined in ACCOUNT mode
+            conversions: (AGGREGATION === 'CAMPAIGN' ? result[key] : result[item.term]) || 0,
+            campaignName: item.campaignName,           // undefined in ACCOUNT mode
+            campaignType: item.campaignType || CAMP_TYPE // Use the item's campaign type or the global setting
         };
     });
     return normalized;
