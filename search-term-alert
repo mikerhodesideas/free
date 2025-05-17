@@ -48,6 +48,15 @@ const PERCENT_THRESHOLD       = 20;           // Percentage threshold for yellow
 // ——— Main ———
 
 function main() {
+    // Check if email address is provided
+    if (!EMAIL_ADDRESS || EMAIL_ADDRESS.trim() === '') {
+        Logger.log('⚠️ ERROR: No email address provided! ⚠️');
+        Logger.log('You must set the EMAIL_ADDRESS constant at the top of the script.');
+        Logger.log('Without an email address, no alerts will be sent.');
+        Logger.log('Please edit the script, add your email, and run it again.');
+        return; // Exit early if no email address
+    }
+
     const timezone = AdsApp.currentAccount().getTimeZone();
     const ss = getSpreadsheet();
     const sheet = ss.getActiveSheet();
@@ -163,34 +172,44 @@ function main() {
         }
     }
 
-    if (shouldSendEmail) {
-        const subject = TESTING_MODE ? '[TEST] Watchdog Report' : 'Search Term Watchdog Alerts';
-        const body = [
-            `Sheet URL: ${ss.getUrl()}`,
-            '',
-            'Top items and their conv changes:',
-            AGGREGATION === 'CAMPAIGN'
-                ? 'Campaign | Term | Δ Conv | Alert'
-                : 'Term | Δ Conv | Alert'
-        ];
-        output.slice(0, 10).forEach(r => {
-            body.push(r.join(' | '));
-        });
-        MailApp.sendEmail(EMAIL_ADDRESS, subject, body.join('\n'));
-        emailSent = true;
+    try {
+        if (shouldSendEmail) {
+            const subject = TESTING_MODE ? '[TEST] Watchdog Report' : 'Search Term Watchdog Alerts';
+            const body = [
+                `Sheet URL: ${ss.getUrl()}`,
+                '',
+                'Top items and their conv changes:',
+                AGGREGATION === 'CAMPAIGN'
+                    ? 'Campaign | Term | Δ Conv | Alert'
+                    : 'Term | Δ Conv | Alert'
+            ];
+            output.slice(0, 10).forEach(r => {
+                body.push(r.join(' | '));
+            });
+            MailApp.sendEmail(EMAIL_ADDRESS, subject, body.join('\n'));
+            emailSent = true;
+        }
+    } catch (e) {
+        Logger.log('⚠️ ERROR: Failed to send email: ' + e.message);
+        Logger.log('Please ensure you have set a valid EMAIL_ADDRESS at the top of the script.');
     }
 
-    if (emailSent) {
-        Logger.log('Email sent to: ' + EMAIL_ADDRESS);
-    } else {
-        Logger.log('No email sent based on current alert trigger (' + EMAIL_ALERT_TRIGGER + ') and alert status.');
-    }
-
-    Logger.log('Search Term Analysis Summary:');
+    // Print summary to logs regardless of email status
+    Logger.log('\n📊 SEARCH TERM ANALYSIS SUMMARY:');
     Logger.log('- Total terms analyzed: ' + analyzedCount);
     Logger.log('- Terms OK: ' + okCount);
     Logger.log('- Yellow Alerts: ' + yellowAlertCount);
     Logger.log('- Red Alerts: ' + redAlertCount);
+    Logger.log('\nResults have been saved to: ' + ss.getUrl());
+
+    if (emailSent) {
+        Logger.log('✅ Email sent to: ' + EMAIL_ADDRESS);
+    } else if (!EMAIL_ADDRESS || EMAIL_ADDRESS.trim() === '') {
+        Logger.log('\n⚠️ IMPORTANT: No email address configured. Email alerts were NOT sent.');
+        Logger.log('To receive email alerts, please edit the script and set the EMAIL_ADDRESS constant.');
+    } else {
+        Logger.log('ℹ️ No email sent based on current alert trigger (' + EMAIL_ALERT_TRIGGER + ') and alert status.');
+    }
 
     Logger.log('Done.');
 }
