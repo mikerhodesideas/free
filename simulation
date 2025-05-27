@@ -1,0 +1,130 @@
+function main() {
+    const SHEET_URL = ''; // Enter your Google Sheet URL here, or leave blank to create new
+    const COGS_PERCENTAGE = 35; // Cost of Goods Sold as percentage (35% = 0.35)
+    
+    const QUERY = `
+    SELECT 
+      campaign_simulation.campaign_id,
+      campaign_simulation.type,
+      campaign_simulation.modification_method,
+      campaign_simulation.start_date,
+      campaign_simulation.end_date,
+      campaign_simulation.budget_point_list.points, 
+      campaign_simulation.cpc_bid_point_list.points, 
+      campaign_simulation.target_cpa_point_list.points, 
+      campaign_simulation.target_roas_point_list.points, 
+      campaign_simulation.target_impression_share_point_list.points,
+      campaign.name, 
+      campaign.status 
+    FROM campaign_simulation 
+    WHERE 
+      campaign.status = 'ENABLED'
+    `;
+
+    let ss;
+    if (!SHEET_URL) {
+        ss = SpreadsheetApp.create("Campaign Budget Simulation Analysis");
+        let url = ss.getUrl();
+        Logger.log("New sheet created: " + url);
+    } else {
+        ss = SpreadsheetApp.openByUrl(SHEET_URL);
+    }
+    
+    let sheet = ss.getActiveSheet();
+    
+    // Clear existing data and add headers
+    sheet.clear();
+    let headers = [
+        'Campaign ID', 'Campaign Name', 'Simulation Type', 'Method', 
+        'Start Date', 'End Date', 'Budget ($)', 'Cost ($)', 'Conv Value ($)', 'ROAS', 'Profit ($)'
+    ];
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    
+    let query = AdsApp.report(QUERY);
+    let report = query.rows();
+    let outputData = [];
+    let rowCount = 0;
+    
+    while (report.hasNext()) {
+        let row = report.next();
+        rowCount++;
+        
+        let campaignId = row['campaign_simulation.campaign_id'];
+        let campaignName = row['campaign.name'];
+        let simulationType = row['campaign_simulation.type'];
+        let modificationMethod = row['campaign_simulation.modification_method'];
+        let startDate = row['campaign_simulation.start_date'];
+        let endDate = row['campaign_simulation.end_date'];
+        
+        // Process different point types based on simulation type
+        let points = [];
+        
+        switch(simulationType) {
+            case 'BUDGET':
+                points = row['campaign_simulation.budget_point_list.points'] || [];
+                break;
+            case 'CPC_BID':
+                points = row['campaign_simulation.cpc_bid_point_list.points'] || [];
+                break;
+            case 'TARGET_CPA':
+                points = row['campaign_simulation.target_cpa_point_list.points'] || [];
+                break;
+            case 'TARGET_ROAS':
+                points = row['campaign_simulation.target_roas_point_list.points'] || [];
+                break;
+            case 'TARGET_IMPRESSION_SHARE':
+                points = row['campaign_simulation.target_impression_share_point_list.points'] || [];
+                break;
+        }
+        
+        Logger.log("Row " + rowCount + " - Campaign: " + campaignName + ", Type: " + simulationType + ", Points found: " + points.length);
+        
+        // Unpack each point into a separate row
+        for (let i = 0; i < points.length; i++) {
+            let point = points[i];
+            
+            // Convert micros to dollars (rounded to nearest dollar)
+            let budgetDollars = point.budgetAmountMicros ? Math.round(point.budgetAmountMicros / 1000000) : '';
+            let costDollars = point.costMicros ? Math.round(point.costMicros / 1000000) : '';
+            let conversionValueDollars = point.biddableConversionsValue ? Math.round(point.biddableConversionsValue) : '';
+            
+            // Calculate ROAS (Return on Ad Spend) - formatted to 1 decimal place
+            let roas = '';
+            if (costDollars && conversionValueDollars && costDollars > 0) {
+                roas = (conversionValueDollars / costDollars).toFixed(1);
+            }
+            
+            // Calculate Profit: (Revenue × (1 - COGS%)) - Ad Cost
+            let profit = '';
+            if (conversionValueDollars && costDollars) {
+                let grossProfit = conversionValueDollars * (1 - COGS_PERCENTAGE / 100);
+                profit = Math.round(grossProfit - costDollars);
+            }
+            
+            let outputRow = [
+                campaignId,
+                campaignName,
+                simulationType,
+                modificationMethod,
+                startDate,
+                endDate,
+                budgetDollars,
+                costDollars,
+                conversionValueDollars,
+                roas,
+                profit
+            ];
+            
+            outputData.push(outputRow);
+        }
+    }
+    
+    Logger.log("Total simulation rows processed: " + rowCount);
+    Logger.log("Total data points to output: " + outputData.length);
+    Logger.log("Using COGS percentage: " + COGS_PERCENTAGE + "%");
+    
+    // Write all data to sheet
+    if (outputData.length > 0) {
+        sheet.getRange(2, 1, outputData.length, headers.length).setValues(outputData);
+    }
+}
