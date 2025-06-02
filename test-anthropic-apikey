@@ -78,8 +78,4 @@ function generateTextAnthropicAPI(prompt, api_key, model) {
 
 // Thanks for trying out the script.
 
-// To get updates about my scripts & training, drop me your email here:
-// https://pmaxscript.ck.page/update
-
-
 // PS you're awesome!
