@@ -1,0 +1,52 @@
+// Enter your Google Sheet URL here between the single quotes.
+const SHEET_URL = '';
+
+// This query fetches product performance data that powers the Products tab.
+const GAQL_QUERY = `
+SELECT
+  segments.product_title,
+  segments.product_item_id,
+  metrics.impressions,
+  metrics.clicks,
+  metrics.cost_micros,
+  metrics.conversions,
+  metrics.conversions_value,
+  campaign.name,
+  campaign.advertising_channel_type
+FROM shopping_performance_view
+WHERE metrics.impressions > 0
+  AND campaign.advertising_channel_type IN ("SHOPPING", "PERFORMANCE_MAX")
+  AND segments.date DURING LAST_30_DAYS
+ORDER BY metrics.impressions DESC
+`;
+
+function main() {
+  let spreadsheet;
+  
+  if (SHEET_URL === '') {
+    // Create a new spreadsheet if no URL is provided
+    spreadsheet = SpreadsheetApp.create('Google Ads Product Performance Data');
+    Logger.log('New spreadsheet created: ' + spreadsheet.getUrl());
+  } else {
+    // Open existing spreadsheet
+    spreadsheet = SpreadsheetApp.openByUrl(SHEET_URL);
+  }
+  
+  // Get or create the "Products" tab
+  let sheet = spreadsheet.getSheetByName('Products');
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet('Products');
+    Logger.log('Created new "Products" tab');
+  }
+  
+  // Execute the GAQL query
+  let query = AdsApp.report(GAQL_QUERY);
+  
+  // Export the results directly to the Products sheet
+  query.exportToSheet(sheet);
+  
+  Logger.log('Successfully exported product data to the "Products" tab');
+  if (SHEET_URL === '') {
+    Logger.log('Spreadsheet URL: ' + spreadsheet.getUrl());
+  }
+}
