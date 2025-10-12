@@ -1,7 +1,8 @@
 // v1 product data - script to show product data in your MCC or single account
-// to learn how to create scripts like this & get sample code to help, head to https://mikerhodes.circle.so/checkout/2024-scripts-and-sheets-workshop
-// copy the template first then enter YOUR url below - template to copy is: https://docs.google.com/spreadsheets/d/1u67oj3E--vk56CXSxt51PF5pTBezpRW7jSX9dm6tKpM/copy
+// to learn how to create scripts like this & get sample code to help, head to https://8020agent.com/scripts
 
+
+// copy the template first then enter YOUR url below - template to copy is: https://docs.google.com/spreadsheets/d/1u67oj3E--vk56CXSxt51PF5pTBezpRW7jSX9dm6tKpM/copy
 
 const SHEET_URL = ''   // Replace with your Google Spreadsheet URL. Leave empty to use the template.
 
@@ -321,5 +322,6 @@ function processAccount(account, productData, processedAccounts, totalAccounts) 
 // and tag me so I can help you resolve it :)
 // Now hit preview (or run) and let's get this party started!
 
+// to learn how to create scripts like this & get sample code to help, head to https://8020agent.com/scripts
 
 // PS you're awesome! Thanks for using this script.
