@@ -1,0 +1,723 @@
+// ===========================================================================================================
+// Agente Financeiro Assistente v1.0
+// Classifica lançamentos, gera relatórios e constrói análises financeiras
+// Usa Anthropic Claude API para classificação inteligente
+// ===========================================================================================================
+
+// ====== CONFIGURAÇÕES ======
+const SPREADSHEET_URL = 'https://docs.google.com/spreadsheets/d/1pAW7xyOQiVqpD6Q2spNaZJ72aKwtfCsHOX7yMT65lsw/edit';
+const ANTHROPIC_API_KEY = '';  // Insira sua API Key da Anthropic aqui
+const CLAUDE_MODEL = 'claude-sonnet-4-20250514';
+
+// Nomes das abas (serão criadas automaticamente se não existirem)
+const ABA_LANCAMENTOS = 'Lançamentos';
+const ABA_CLASSIFICADOS = 'Classificados';
+const ABA_RELATORIO_MENSAL = 'Relatório Mensal';
+const ABA_ANALISE = 'Análise';
+const ABA_CONFIG = 'Config';
+
+// Categorias padrão para classificação
+const CATEGORIAS_PADRAO = {
+  receitas: [
+    'Salário', 'Freelance', 'Investimentos', 'Aluguel Recebido',
+    'Vendas', 'Comissões', 'Dividendos', 'Reembolso', 'Outras Receitas'
+  ],
+  despesas: [
+    'Alimentação', 'Moradia', 'Transporte', 'Saúde', 'Educação',
+    'Lazer', 'Vestuário', 'Serviços (Assinaturas)', 'Impostos',
+    'Seguros', 'Telefone/Internet', 'Energia/Água/Gás',
+    'Manutenção', 'Viagem', 'Presentes/Doações', 'Outras Despesas'
+  ]
+};
+
+
+// ===========================================================================================================
+// FUNÇÕES PRINCIPAIS - Executar via menu ou triggers
+// ===========================================================================================================
+
+/**
+ * Cria o menu personalizado ao abrir a planilha
+ */
+function onOpen() {
+  let ui = SpreadsheetApp.getUi();
+  ui.createMenu('💰 Agente Financeiro')
+    .addItem('Classificar Lançamentos', 'classificarLancamentos')
+    .addItem('Gerar Relatório Mensal', 'gerarRelatorioMensal')
+    .addItem('Gerar Análise Completa', 'gerarAnaliseCompleta')
+    .addSeparator()
+    .addItem('Executar Tudo', 'executarTudo')
+    .addSeparator()
+    .addItem('Configurar Categorias', 'abrirConfigCategorias')
+    .addItem('Inicializar Planilha', 'inicializarPlanilha')
+    .addToUi();
+}
+
+/**
+ * Função principal - executa todas as etapas
+ */
+function executarTudo() {
+  let ss = getSpreadsheet();
+  Logger.log('=== Agente Financeiro - Execução Completa ===');
+
+  classificarLancamentos();
+  gerarRelatorioMensal();
+  gerarAnaliseCompleta();
+
+  Logger.log('=== Execução completa finalizada ===');
+  SpreadsheetApp.getUi().alert('Agente Financeiro executou todas as etapas com sucesso!');
+}
+
+/**
+ * Função principal chamada pelo Google Ads (compatível com scripts do Google Ads)
+ */
+function main() {
+  Logger.log('=== Agente Financeiro Assistente v1.0 ===');
+
+  let ss = getSpreadsheet();
+
+  classificarLancamentos();
+  gerarRelatorioMensal();
+  gerarAnaliseCompleta();
+
+  Logger.log('=== Processamento concluído ===');
+}
+
+
+// ===========================================================================================================
+// CLASSIFICAÇÃO DE LANÇAMENTOS
+// ===========================================================================================================
+
+/**
+ * Lê lançamentos não classificados e usa Claude para classificá-los
+ */
+function classificarLancamentos() {
+  Logger.log('--- Iniciando classificação de lançamentos ---');
+  let ss = getSpreadsheet();
+
+  let abaLanc = getOrCreateSheet(ss, ABA_LANCAMENTOS, ['Data', 'Descrição', 'Valor', 'Tipo', 'Categoria', 'Subcategoria', 'Observações']);
+  let abaClass = getOrCreateSheet(ss, ABA_CLASSIFICADOS, ['Data', 'Descrição', 'Valor', 'Tipo', 'Categoria', 'Subcategoria', 'Confiança', 'Observações', 'Classificado Em']);
+
+  let dados = abaLanc.getDataRange().getValues();
+  if (dados.length <= 1) {
+    Logger.log('Nenhum lançamento encontrado.');
+    return;
+  }
+
+  let headers = dados[0];
+  let colData = findColumn(headers, ['data', 'date']);
+  let colDesc = findColumn(headers, ['descrição', 'descricao', 'description', 'desc']);
+  let colValor = findColumn(headers, ['valor', 'value', 'amount', 'quantia']);
+  let colTipo = findColumn(headers, ['tipo', 'type']);
+  let colCategoria = findColumn(headers, ['categoria', 'category']);
+
+  // Filtra lançamentos sem categoria
+  let naoClassificados = [];
+  let linhasOrigem = [];
+  for (let i = 1; i < dados.length; i++) {
+    let row = dados[i];
+    if (row[colDesc] && (!row[colCategoria] || String(row[colCategoria]).trim() === '')) {
+      naoClassificados.push({
+        linha: i + 1,
+        data: row[colData],
+        descricao: row[colDesc],
+        valor: row[colValor],
+        tipo: row[colTipo] || ''
+      });
+      linhasOrigem.push(i + 1);
+    }
+  }
+
+  if (naoClassificados.length === 0) {
+    Logger.log('Todos os lançamentos já estão classificados.');
+    return;
+  }
+
+  Logger.log(`Encontrados ${naoClassificados.length} lançamentos para classificar.`);
+
+  // Carrega categorias customizadas (se existirem na aba Config)
+  let categorias = carregarCategorias(ss);
+
+  // Classifica em lotes de 20
+  let batchSize = 20;
+  for (let i = 0; i < naoClassificados.length; i += batchSize) {
+    let batch = naoClassificados.slice(i, i + batchSize);
+    let classificacoes = classificarComClaude(batch, categorias);
+
+    if (!classificacoes || classificacoes.length === 0) {
+      Logger.log(`Erro ao classificar lote ${Math.floor(i / batchSize) + 1}. Pulando.`);
+      continue;
+    }
+
+    // Escreve classificações na aba original e na aba de classificados
+    for (let j = 0; j < classificacoes.length; j++) {
+      let c = classificacoes[j];
+      let lancamento = batch[j];
+      let linhaOrigem = linhasOrigem[i + j];
+
+      // Atualiza a aba de lançamentos original
+      if (colCategoria >= 0) {
+        abaLanc.getRange(linhaOrigem, colCategoria + 1).setValue(c.categoria);
+      }
+
+      // Adiciona à aba de classificados
+      abaClass.appendRow([
+        lancamento.data,
+        lancamento.descricao,
+        lancamento.valor,
+        c.tipo,
+        c.categoria,
+        c.subcategoria || '',
+        c.confianca || 'alta',
+        c.observacao || '',
+        new Date()
+      ]);
+    }
+
+    Logger.log(`Lote ${Math.floor(i / batchSize) + 1} classificado: ${classificacoes.length} itens.`);
+
+    if (i + batchSize < naoClassificados.length) {
+      Utilities.sleep(1000);
+    }
+  }
+
+  Logger.log(`--- Classificação concluída: ${naoClassificados.length} lançamentos processados ---`);
+}
+
+/**
+ * Envia lançamentos para Claude classificar
+ */
+function classificarComClaude(lancamentos, categorias) {
+  let listaLancamentos = lancamentos.map((l, idx) =>
+    `${idx + 1}. Data: ${l.data} | Descrição: "${l.descricao}" | Valor: R$ ${l.valor} | Tipo informado: ${l.tipo || 'não informado'}`
+  ).join('\n');
+
+  let listaCategorias = `
+RECEITAS: ${categorias.receitas.join(', ')}
+DESPESAS: ${categorias.despesas.join(', ')}`;
+
+  let prompt = `Você é um assistente financeiro especializado em classificação de lançamentos bancários brasileiros.
+
+Classifique cada lançamento abaixo em uma das categorias listadas. Retorne APENAS um JSON array, sem markdown, sem explicação.
+
+CATEGORIAS DISPONÍVEIS:
+${listaCategorias}
+
+LANÇAMENTOS PARA CLASSIFICAR:
+${listaLancamentos}
+
+Retorne EXATAMENTE um JSON array onde cada item tem:
+- "idx": número do lançamento (1-based)
+- "tipo": "receita" ou "despesa"
+- "categoria": uma das categorias listadas acima
+- "subcategoria": detalhe mais específico se aplicável (ex: "Uber" para Transporte)
+- "confianca": "alta", "media" ou "baixa"
+- "observacao": breve justificativa da classificação
+
+Responda APENAS com o JSON array. Nenhum texto adicional.`;
+
+  let resposta = callClaude(prompt, 2000);
+  if (!resposta) return null;
+
+  try {
+    // Limpa possíveis wrappers de markdown
+    resposta = resposta.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    let classificacoes = JSON.parse(resposta);
+    return classificacoes;
+  } catch (e) {
+    Logger.log('Erro ao parsear resposta do Claude: ' + e.message);
+    Logger.log('Resposta recebida: ' + resposta.substring(0, 500));
+    return null;
+  }
+}
+
+
+// ===========================================================================================================
+// RELATÓRIO MENSAL
+// ===========================================================================================================
+
+/**
+ * Gera relatório mensal consolidado
+ */
+function gerarRelatorioMensal() {
+  Logger.log('--- Gerando relatório mensal ---');
+  let ss = getSpreadsheet();
+
+  let abaClass = ss.getSheetByName(ABA_CLASSIFICADOS);
+  if (!abaClass) {
+    Logger.log('Aba de classificados não encontrada. Execute a classificação primeiro.');
+    return;
+  }
+
+  let dados = abaClass.getDataRange().getValues();
+  if (dados.length <= 1) {
+    Logger.log('Nenhum dado classificado encontrado.');
+    return;
+  }
+
+  // Agrupa por mês/ano e categoria
+  let resumo = {};
+  let headers = dados[0];
+
+  for (let i = 1; i < dados.length; i++) {
+    let row = dados[i];
+    let data = new Date(row[0]);
+    if (isNaN(data.getTime())) continue;
+
+    let mesAno = Utilities.formatDate(data, 'America/Sao_Paulo', 'yyyy-MM');
+    let mesAnoLabel = Utilities.formatDate(data, 'America/Sao_Paulo', 'MMMM yyyy');
+    let valor = parseFloat(row[2]) || 0;
+    let tipo = String(row[3]).toLowerCase();
+    let categoria = row[4] || 'Sem Categoria';
+
+    if (!resumo[mesAno]) {
+      resumo[mesAno] = { label: mesAnoLabel, receitas: {}, despesas: {}, totalReceitas: 0, totalDespesas: 0 };
+    }
+
+    if (tipo === 'receita') {
+      resumo[mesAno].receitas[categoria] = (resumo[mesAno].receitas[categoria] || 0) + Math.abs(valor);
+      resumo[mesAno].totalReceitas += Math.abs(valor);
+    } else {
+      resumo[mesAno].despesas[categoria] = (resumo[mesAno].despesas[categoria] || 0) + Math.abs(valor);
+      resumo[mesAno].totalDespesas += Math.abs(valor);
+    }
+  }
+
+  // Escreve na aba de relatório
+  let abaRel = getOrCreateSheet(ss, ABA_RELATORIO_MENSAL, []);
+  abaRel.clear();
+
+  let outputRows = [];
+  outputRows.push(['RELATÓRIO FINANCEIRO MENSAL', '', '', '', 'Gerado em: ' + new Date().toLocaleString('pt-BR')]);
+  outputRows.push(['']);
+
+  let meses = Object.keys(resumo).sort();
+  for (let mes of meses) {
+    let r = resumo[mes];
+    let saldo = r.totalReceitas - r.totalDespesas;
+
+    outputRows.push(['📅 ' + r.label.toUpperCase(), '', '', '', '']);
+    outputRows.push(['']);
+    outputRows.push(['', 'RECEITAS', '', 'DESPESAS', '']);
+    outputRows.push(['', 'Categoria', 'Valor (R$)', 'Categoria', 'Valor (R$)']);
+
+    let receitasCats = Object.entries(r.receitas).sort((a, b) => b[1] - a[1]);
+    let despesasCats = Object.entries(r.despesas).sort((a, b) => b[1] - a[1]);
+    let maxRows = Math.max(receitasCats.length, despesasCats.length);
+
+    for (let i = 0; i < maxRows; i++) {
+      let recCat = receitasCats[i] ? receitasCats[i][0] : '';
+      let recVal = receitasCats[i] ? receitasCats[i][1] : '';
+      let despCat = despesasCats[i] ? despesasCats[i][0] : '';
+      let despVal = despesasCats[i] ? despesasCats[i][1] : '';
+      outputRows.push(['', recCat, recVal, despCat, despVal]);
+    }
+
+    outputRows.push(['']);
+    outputRows.push(['', 'Total Receitas:', formatCurrency(r.totalReceitas), 'Total Despesas:', formatCurrency(r.totalDespesas)]);
+    outputRows.push(['', 'SALDO DO MÊS:', formatCurrency(saldo), saldo >= 0 ? '✅ Positivo' : '⚠️ Negativo', '']);
+    outputRows.push(['']);
+    outputRows.push(['─────────────────────────────────────────────────────']);
+    outputRows.push(['']);
+  }
+
+  // Resumo geral
+  let totalGeralReceitas = meses.reduce((sum, m) => sum + resumo[m].totalReceitas, 0);
+  let totalGeralDespesas = meses.reduce((sum, m) => sum + resumo[m].totalDespesas, 0);
+  let saldoGeral = totalGeralReceitas - totalGeralDespesas;
+
+  outputRows.push(['RESUMO GERAL']);
+  outputRows.push(['Total de Receitas:', formatCurrency(totalGeralReceitas)]);
+  outputRows.push(['Total de Despesas:', formatCurrency(totalGeralDespesas)]);
+  outputRows.push(['Saldo Total:', formatCurrency(saldoGeral)]);
+  outputRows.push(['Média Mensal de Receitas:', formatCurrency(totalGeralReceitas / meses.length)]);
+  outputRows.push(['Média Mensal de Despesas:', formatCurrency(totalGeralDespesas / meses.length)]);
+  outputRows.push(['Taxa de Poupança:', ((saldoGeral / totalGeralReceitas) * 100).toFixed(1) + '%']);
+
+  if (outputRows.length > 0) {
+    let maxCols = Math.max(...outputRows.map(r => Array.isArray(r) ? r.length : 1));
+    let normalizedRows = outputRows.map(r => {
+      let row = Array.isArray(r) ? r : [r];
+      while (row.length < maxCols) row.push('');
+      return row;
+    });
+    abaRel.getRange(1, 1, normalizedRows.length, maxCols).setValues(normalizedRows);
+  }
+
+  // Formatação
+  abaRel.getRange(1, 1).setFontSize(14).setFontWeight('bold');
+  abaRel.autoResizeColumns(1, 5);
+
+  Logger.log('--- Relatório mensal gerado com sucesso ---');
+}
+
+
+// ===========================================================================================================
+// ANÁLISE FINANCEIRA COM IA
+// ===========================================================================================================
+
+/**
+ * Gera análise financeira completa usando Claude
+ */
+function gerarAnaliseCompleta() {
+  Logger.log('--- Gerando análise financeira com IA ---');
+  let ss = getSpreadsheet();
+
+  let abaClass = ss.getSheetByName(ABA_CLASSIFICADOS);
+  if (!abaClass) {
+    Logger.log('Aba de classificados não encontrada. Execute a classificação primeiro.');
+    return;
+  }
+
+  let dados = abaClass.getDataRange().getValues();
+  if (dados.length <= 1) {
+    Logger.log('Nenhum dado para analisar.');
+    return;
+  }
+
+  // Prepara resumo dos dados para enviar ao Claude
+  let resumoDados = prepararResumoDados(dados);
+
+  let prompt = `Você é um consultor financeiro pessoal experiente analisando os dados financeiros de um cliente brasileiro.
+
+DADOS FINANCEIROS:
+${resumoDados}
+
+Com base nesses dados, forneça uma análise financeira completa e estruturada em português brasileiro. Inclua:
+
+1. **VISÃO GERAL**: Resumo da saúde financeira em 2-3 parágrafos.
+
+2. **ANÁLISE DE RECEITAS**: De onde vem o dinheiro, estabilidade, tendências.
+
+3. **ANÁLISE DE DESPESAS**:
+   - Top 5 maiores categorias de gasto
+   - Identificação de gastos recorrentes vs variáveis
+   - Gastos que parecem acima da média
+
+4. **TENDÊNCIAS**: Comparação mês a mês, padrões sazonais identificados.
+
+5. **ALERTAS E RISCOS**:
+   - Meses com saldo negativo
+   - Categorias com crescimento preocupante
+   - Dependência de fonte única de renda (se aplicável)
+
+6. **RECOMENDAÇÕES**: 5 ações concretas e específicas para melhorar a situação financeira.
+
+7. **SCORE DE SAÚDE FINANCEIRA**: Nota de 0 a 100 com justificativa.
+
+Seja direto, use números reais dos dados, e dê conselhos práticos.`;
+
+  let analise = callClaude(prompt, 4000);
+  if (!analise) {
+    Logger.log('Erro ao gerar análise.');
+    return;
+  }
+
+  // Escreve na aba de análise
+  let abaAnalise = getOrCreateSheet(ss, ABA_ANALISE, []);
+  abaAnalise.clear();
+
+  let linhas = analise.split('\n');
+  let outputRows = [
+    ['ANÁLISE FINANCEIRA - Gerada por IA em ' + new Date().toLocaleString('pt-BR')],
+    ['']
+  ];
+
+  for (let linha of linhas) {
+    outputRows.push([linha]);
+  }
+
+  abaAnalise.getRange(1, 1, outputRows.length, 1).setValues(outputRows);
+  abaAnalise.getRange(1, 1).setFontSize(14).setFontWeight('bold');
+  abaAnalise.setColumnWidth(1, 800);
+
+  Logger.log('--- Análise financeira gerada com sucesso ---');
+}
+
+/**
+ * Prepara um resumo estruturado dos dados para enviar ao Claude
+ */
+function prepararResumoDados(dados) {
+  let resumoPorMes = {};
+  let todasCategorias = {};
+  let totalGeral = { receitas: 0, despesas: 0 };
+
+  for (let i = 1; i < dados.length; i++) {
+    let row = dados[i];
+    let data = new Date(row[0]);
+    if (isNaN(data.getTime())) continue;
+
+    let mesAno = Utilities.formatDate(data, 'America/Sao_Paulo', 'yyyy-MM');
+    let valor = Math.abs(parseFloat(row[2]) || 0);
+    let tipo = String(row[3]).toLowerCase();
+    let categoria = row[4] || 'Sem Categoria';
+
+    if (!resumoPorMes[mesAno]) {
+      resumoPorMes[mesAno] = { receitas: 0, despesas: 0, categorias: {} };
+    }
+
+    if (tipo === 'receita') {
+      resumoPorMes[mesAno].receitas += valor;
+      totalGeral.receitas += valor;
+    } else {
+      resumoPorMes[mesAno].despesas += valor;
+      totalGeral.despesas += valor;
+    }
+
+    if (!resumoPorMes[mesAno].categorias[categoria]) {
+      resumoPorMes[mesAno].categorias[categoria] = 0;
+    }
+    resumoPorMes[mesAno].categorias[categoria] += valor;
+
+    todasCategorias[categoria] = (todasCategorias[categoria] || 0) + valor;
+  }
+
+  let texto = `PERÍODO: ${Object.keys(resumoPorMes).sort()[0]} a ${Object.keys(resumoPorMes).sort().pop()}\n`;
+  texto += `TOTAL DE LANÇAMENTOS: ${dados.length - 1}\n`;
+  texto += `TOTAL RECEITAS: R$ ${totalGeral.receitas.toFixed(2)}\n`;
+  texto += `TOTAL DESPESAS: R$ ${totalGeral.despesas.toFixed(2)}\n`;
+  texto += `SALDO: R$ ${(totalGeral.receitas - totalGeral.despesas).toFixed(2)}\n\n`;
+
+  texto += 'RESUMO MENSAL:\n';
+  let meses = Object.keys(resumoPorMes).sort();
+  for (let mes of meses) {
+    let r = resumoPorMes[mes];
+    let saldo = r.receitas - r.despesas;
+    texto += `  ${mes}: Receitas R$ ${r.receitas.toFixed(2)} | Despesas R$ ${r.despesas.toFixed(2)} | Saldo R$ ${saldo.toFixed(2)}\n`;
+
+    let cats = Object.entries(r.categorias).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    for (let [cat, val] of cats) {
+      texto += `    - ${cat}: R$ ${val.toFixed(2)}\n`;
+    }
+  }
+
+  texto += '\nTOP CATEGORIAS (TOTAL):\n';
+  let topCats = Object.entries(todasCategorias).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  for (let [cat, val] of topCats) {
+    let pct = ((val / (totalGeral.receitas + totalGeral.despesas)) * 100).toFixed(1);
+    texto += `  ${cat}: R$ ${val.toFixed(2)} (${pct}%)\n`;
+  }
+
+  return texto;
+}
+
+
+// ===========================================================================================================
+// CONFIGURAÇÃO E INICIALIZAÇÃO
+// ===========================================================================================================
+
+/**
+ * Inicializa a planilha com a estrutura necessária
+ */
+function inicializarPlanilha() {
+  let ss = getSpreadsheet();
+
+  // Aba de lançamentos
+  let abaLanc = getOrCreateSheet(ss, ABA_LANCAMENTOS, ['Data', 'Descrição', 'Valor', 'Tipo', 'Categoria', 'Subcategoria', 'Observações']);
+
+  // Aba de classificados
+  getOrCreateSheet(ss, ABA_CLASSIFICADOS, ['Data', 'Descrição', 'Valor', 'Tipo', 'Categoria', 'Subcategoria', 'Confiança', 'Observações', 'Classificado Em']);
+
+  // Aba de relatório
+  getOrCreateSheet(ss, ABA_RELATORIO_MENSAL, []);
+
+  // Aba de análise
+  getOrCreateSheet(ss, ABA_ANALISE, []);
+
+  // Aba de configuração
+  let abaConfig = getOrCreateSheet(ss, ABA_CONFIG, ['Configuração', 'Valor']);
+  let configData = abaConfig.getDataRange().getValues();
+  if (configData.length <= 1) {
+    let configRows = [
+      ['api_key', ''],
+      ['model', CLAUDE_MODEL],
+      ['categorias_receitas', CATEGORIAS_PADRAO.receitas.join(', ')],
+      ['categorias_despesas', CATEGORIAS_PADRAO.despesas.join(', ')],
+      ['timezone', 'America/Sao_Paulo'],
+      ['moeda', 'BRL'],
+      ['idioma', 'pt-BR']
+    ];
+    abaConfig.getRange(2, 1, configRows.length, 2).setValues(configRows);
+  }
+
+  // Formatação da aba de lançamentos
+  abaLanc.setFrozenRows(1);
+  abaLanc.getRange(1, 1, 1, 7).setFontWeight('bold').setBackground('#4a86c8').setFontColor('white');
+  abaLanc.autoResizeColumns(1, 7);
+
+  Logger.log('Planilha inicializada com sucesso.');
+  try {
+    SpreadsheetApp.getUi().alert('Planilha inicializada com sucesso!\n\nAbas criadas:\n- Lançamentos\n- Classificados\n- Relatório Mensal\n- Análise\n- Config\n\nInsira sua API Key na aba Config ou no código.');
+  } catch (e) {
+    // Se não tiver UI disponível (ex: rodando via trigger)
+  }
+}
+
+/**
+ * Carrega categorias customizadas da aba Config
+ */
+function carregarCategorias(ss) {
+  let categorias = JSON.parse(JSON.stringify(CATEGORIAS_PADRAO));
+
+  let abaConfig = ss.getSheetByName(ABA_CONFIG);
+  if (!abaConfig) return categorias;
+
+  let configData = abaConfig.getDataRange().getValues();
+  for (let i = 1; i < configData.length; i++) {
+    let chave = String(configData[i][0]).trim();
+    let valor = String(configData[i][1]).trim();
+
+    if (chave === 'categorias_receitas' && valor) {
+      categorias.receitas = valor.split(',').map(s => s.trim()).filter(s => s);
+    }
+    if (chave === 'categorias_despesas' && valor) {
+      categorias.despesas = valor.split(',').map(s => s.trim()).filter(s => s);
+    }
+  }
+
+  return categorias;
+}
+
+/**
+ * Abre popup para configurar categorias
+ */
+function abrirConfigCategorias() {
+  let ss = getSpreadsheet();
+  let abaConfig = getOrCreateSheet(ss, ABA_CONFIG, ['Configuração', 'Valor']);
+  ss.setActiveSheet(abaConfig);
+  SpreadsheetApp.getUi().alert(
+    'Configure suas categorias na aba Config.\n\n' +
+    'Edite as linhas "categorias_receitas" e "categorias_despesas" com suas categorias separadas por vírgula.'
+  );
+}
+
+
+// ===========================================================================================================
+// UTILITÁRIOS
+// ===========================================================================================================
+
+/**
+ * Obtém a planilha configurada
+ */
+function getSpreadsheet() {
+  let id = SPREADSHEET_URL.match(/[-\w]{25,}/);
+  if (!id) throw new Error('URL da planilha inválida. Verifique SPREADSHEET_URL.');
+  return SpreadsheetApp.openById(id[0]);
+}
+
+/**
+ * Obtém ou cria uma aba na planilha
+ */
+function getOrCreateSheet(ss, name, headers) {
+  let sheet = ss.getSheetByName(name);
+  if (!sheet) {
+    sheet = ss.insertSheet(name);
+    if (headers && headers.length > 0) {
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      sheet.setFrozenRows(1);
+      sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+    }
+    Logger.log(`Aba "${name}" criada.`);
+  }
+  return sheet;
+}
+
+/**
+ * Encontra o índice de uma coluna pelo nome (case-insensitive)
+ */
+function findColumn(headers, possibleNames) {
+  for (let i = 0; i < headers.length; i++) {
+    let h = String(headers[i]).toLowerCase().trim();
+    for (let name of possibleNames) {
+      if (h === name.toLowerCase()) return i;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Formata valor como moeda brasileira
+ */
+function formatCurrency(value) {
+  return 'R$ ' + parseFloat(value).toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+
+/**
+ * Chama a API do Claude (Anthropic)
+ */
+function callClaude(prompt, maxTokens) {
+  let apiKey = getApiKey();
+  if (!apiKey) {
+    Logger.log('ERRO: API Key da Anthropic não configurada. Defina em ANTHROPIC_API_KEY ou na aba Config.');
+    return null;
+  }
+
+  let url = 'https://api.anthropic.com/v1/messages';
+  let payload = {
+    'model': CLAUDE_MODEL,
+    'max_tokens': maxTokens || 2000,
+    'messages': [
+      { 'role': 'user', 'content': prompt }
+    ]
+  };
+
+  let options = {
+    'method': 'POST',
+    'muteHttpExceptions': true,
+    'contentType': 'application/json',
+    'headers': {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01'
+    },
+    'payload': JSON.stringify(payload)
+  };
+
+  let response = UrlFetchApp.fetch(url, options);
+  let rCode = response.getResponseCode();
+  let rText = response.getContentText();
+
+  if (rCode !== 200) {
+    Logger.log(`Erro na API Anthropic (${rCode}): ${rText.substring(0, 300)}`);
+    // Retry uma vez após 2 segundos
+    Utilities.sleep(2000);
+    response = UrlFetchApp.fetch(url, options);
+    rCode = response.getResponseCode();
+    rText = response.getContentText();
+
+    if (rCode !== 200) {
+      Logger.log(`Erro persistente na API (${rCode}).`);
+      return null;
+    }
+  }
+
+  let rJson = JSON.parse(rText);
+  if (rJson && rJson.content && rJson.content.length > 0) {
+    return rJson.content[0].text;
+  }
+
+  Logger.log('Resposta inesperada da API.');
+  return null;
+}
+
+/**
+ * Obtém a API Key (prioridade: aba Config > constante no código)
+ */
+function getApiKey() {
+  // Tenta buscar da aba Config
+  try {
+    let ss = getSpreadsheet();
+    let abaConfig = ss.getSheetByName(ABA_CONFIG);
+    if (abaConfig) {
+      let configData = abaConfig.getDataRange().getValues();
+      for (let i = 1; i < configData.length; i++) {
+        if (String(configData[i][0]).trim() === 'api_key') {
+          let key = String(configData[i][1]).trim();
+          if (key) return key;
+        }
+      }
+    }
+  } catch (e) {
+    // Falha silenciosa, usa constante
+  }
+
+  return ANTHROPIC_API_KEY || null;
+}
