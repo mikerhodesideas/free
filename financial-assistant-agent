@@ -1,30 +1,30 @@
 // ===========================================================================================================
-// Agente Financeiro Assistente v1.0
+// Agente Financeiro Assistente v2.0 - Auto-Detect
 // Classifica lançamentos, gera relatórios e constrói análises financeiras
-// Usa Anthropic Claude API para classificação inteligente
+// Auto-detecta a estrutura da planilha - zero configuração manual de colunas
 // ===========================================================================================================
 
-// ====== CONFIGURAÇÕES ======
-const SPREADSHEET_URL = 'https://docs.google.com/spreadsheets/d/1pAW7xyOQiVqpD6Q2spNaZJ72aKwtfCsHOX7yMT65lsw/edit';
-const ANTHROPIC_API_KEY = '';  // Insira sua API Key da Anthropic aqui
+// ====== ÚNICA CONFIGURAÇÃO NECESSÁRIA ======
+const ANTHROPIC_API_KEY = '';  // <-- Cole sua API Key aqui
+
+// Configurações opcionais (podem ser ignoradas)
 const CLAUDE_MODEL = 'claude-sonnet-4-20250514';
+const TIMEZONE = 'America/Sao_Paulo';
 
-// Nomes das abas (serão criadas automaticamente se não existirem)
-const ABA_LANCAMENTOS = 'Lançamentos';
+// Nomes das abas que o agente vai criar
 const ABA_CLASSIFICADOS = 'Classificados';
-const ABA_RELATORIO_MENSAL = 'Relatório Mensal';
+const ABA_RELATORIO = 'Relatório Mensal';
 const ABA_ANALISE = 'Análise';
-const ABA_CONFIG = 'Config';
 
-// Categorias padrão para classificação
-const CATEGORIAS_PADRAO = {
+// Categorias padrão
+const CATEGORIAS = {
   receitas: [
     'Salário', 'Freelance', 'Investimentos', 'Aluguel Recebido',
     'Vendas', 'Comissões', 'Dividendos', 'Reembolso', 'Outras Receitas'
   ],
   despesas: [
     'Alimentação', 'Moradia', 'Transporte', 'Saúde', 'Educação',
-    'Lazer', 'Vestuário', 'Serviços (Assinaturas)', 'Impostos',
+    'Lazer', 'Vestuário', 'Assinaturas/Serviços', 'Impostos',
     'Seguros', 'Telefone/Internet', 'Energia/Água/Gás',
     'Manutenção', 'Viagem', 'Presentes/Doações', 'Outras Despesas'
   ]
@@ -32,54 +32,239 @@ const CATEGORIAS_PADRAO = {
 
 
 // ===========================================================================================================
-// FUNÇÕES PRINCIPAIS - Executar via menu ou triggers
+// MENU E ENTRY POINTS
 // ===========================================================================================================
 
-/**
- * Cria o menu personalizado ao abrir a planilha
- */
 function onOpen() {
-  let ui = SpreadsheetApp.getUi();
-  ui.createMenu('💰 Agente Financeiro')
-    .addItem('Classificar Lançamentos', 'classificarLancamentos')
-    .addItem('Gerar Relatório Mensal', 'gerarRelatorioMensal')
-    .addItem('Gerar Análise Completa', 'gerarAnaliseCompleta')
+  SpreadsheetApp.getUi().createMenu('Agente Financeiro')
+    .addItem('SETUP - Executar Tudo', 'SETUP')
     .addSeparator()
-    .addItem('Executar Tudo', 'executarTudo')
+    .addItem('1. Classificar Lançamentos', 'classificarLancamentos')
+    .addItem('2. Gerar Relatório Mensal', 'gerarRelatorioMensal')
+    .addItem('3. Gerar Análise com IA', 'gerarAnaliseCompleta')
     .addSeparator()
-    .addItem('Configurar Categorias', 'abrirConfigCategorias')
-    .addItem('Inicializar Planilha', 'inicializarPlanilha')
+    .addItem('Configurar Trigger Automático', 'configurarTrigger')
     .addToUi();
 }
 
 /**
- * Função principal - executa todas as etapas
+ * SETUP - Função principal. Executa tudo com um clique.
+ * Detecta automaticamente a estrutura da planilha.
  */
-function executarTudo() {
-  let ss = getSpreadsheet();
-  Logger.log('=== Agente Financeiro - Execução Completa ===');
+function SETUP() {
+  let ss = SpreadsheetApp.getActiveSpreadsheet();
+  Logger.log('=== Agente Financeiro v2.0 - SETUP ===');
 
-  classificarLancamentos();
-  gerarRelatorioMensal();
-  gerarAnaliseCompleta();
+  // 1. Detectar aba de lançamentos
+  let detecao = detectarAbaLancamentos(ss);
+  if (!detecao) {
+    let msg = 'Não encontrei uma aba com lançamentos financeiros.\n\n' +
+      'A planilha precisa ter pelo menos uma aba com colunas de:\n' +
+      '- Data (data, date, dt)\n' +
+      '- Descrição (descrição, descricao, historico, memo)\n' +
+      '- Valor (valor, value, amount, quantia)\n\n' +
+      'Verifique se a planilha tem dados e tente novamente.';
+    Logger.log(msg);
+    try { SpreadsheetApp.getUi().alert(msg); } catch(e) {}
+    return;
+  }
 
-  Logger.log('=== Execução completa finalizada ===');
-  SpreadsheetApp.getUi().alert('Agente Financeiro executou todas as etapas com sucesso!');
+  Logger.log('Aba detectada: "' + detecao.sheet.getName() + '" com ' + detecao.numRows + ' lançamentos');
+  Logger.log('Colunas: Data=' + detecao.headers[detecao.colData] +
+    ', Desc=' + detecao.headers[detecao.colDesc] +
+    ', Valor=' + detecao.headers[detecao.colValor]);
+
+  // 2. Classificar
+  classificarLancamentos(ss, detecao);
+
+  // 3. Relatório
+  gerarRelatorioMensal(ss);
+
+  // 4. Análise IA
+  gerarAnaliseCompleta(ss);
+
+  let msg = 'Agente Financeiro concluiu!\n\n' +
+    'Aba detectada: "' + detecao.sheet.getName() + '"\n' +
+    'Lançamentos processados: ' + detecao.numRows + '\n\n' +
+    'Confira as abas:\n' +
+    '- ' + ABA_CLASSIFICADOS + '\n' +
+    '- ' + ABA_RELATORIO + '\n' +
+    '- ' + ABA_ANALISE;
+  Logger.log(msg);
+  try { SpreadsheetApp.getUi().alert(msg); } catch(e) {}
 }
 
 /**
- * Função principal chamada pelo Google Ads (compatível com scripts do Google Ads)
+ * Compatível com Google Ads scripts
  */
 function main() {
-  Logger.log('=== Agente Financeiro Assistente v1.0 ===');
+  SETUP();
+}
 
-  let ss = getSpreadsheet();
 
-  classificarLancamentos();
-  gerarRelatorioMensal();
-  gerarAnaliseCompleta();
+// ===========================================================================================================
+// AUTO-DETECÇÃO DA ESTRUTURA DA PLANILHA
+// ===========================================================================================================
 
-  Logger.log('=== Processamento concluído ===');
+/**
+ * Escaneia todas as abas da planilha e encontra a que tem lançamentos financeiros.
+ * Retorna objeto com sheet, headers, índices de colunas e dados.
+ */
+function detectarAbaLancamentos(ss) {
+  let sheets = ss.getSheets();
+  let melhorMatch = null;
+  let melhorScore = 0;
+
+  // Nomes de abas criadas pelo agente - pular
+  let abasIgnorar = [ABA_CLASSIFICADOS, ABA_RELATORIO, ABA_ANALISE, 'Config'];
+
+  for (let sheet of sheets) {
+    let nome = sheet.getName();
+    if (abasIgnorar.indexOf(nome) >= 0) continue;
+
+    let dados = sheet.getDataRange().getValues();
+    if (dados.length < 2) continue; // precisa de header + pelo menos 1 linha
+
+    let headers = dados[0].map(h => String(h).toLowerCase().trim());
+    let score = 0;
+    let colData = -1, colDesc = -1, colValor = -1, colTipo = -1, colCategoria = -1;
+
+    // Detecta coluna de Data
+    colData = matchColumn(headers, ['data', 'date', 'dt', 'dia', 'data lancamento', 'data lançamento', 'data_lancamento']);
+    if (colData >= 0) score += 3;
+
+    // Detecta coluna de Descrição
+    colDesc = matchColumn(headers, ['descrição', 'descricao', 'description', 'desc', 'historico', 'histórico',
+      'memo', 'detalhes', 'detalhe', 'lancamento', 'lançamento', 'nome', 'referencia', 'referência']);
+    if (colDesc >= 0) score += 3;
+
+    // Detecta coluna de Valor
+    colValor = matchColumn(headers, ['valor', 'value', 'amount', 'quantia', 'montante', 'total',
+      'valor (r$)', 'valor r$', 'vlr', 'val']);
+    if (colValor >= 0) score += 3;
+
+    // Detecta coluna de Tipo (opcional)
+    colTipo = matchColumn(headers, ['tipo', 'type', 'natureza', 'entrada/saída', 'entrada/saida',
+      'credito/debito', 'crédito/débito', 'c/d', 'd/c']);
+    if (colTipo >= 0) score += 1;
+
+    // Detecta coluna de Categoria (opcional)
+    colCategoria = matchColumn(headers, ['categoria', 'category', 'classificação', 'classificacao', 'class', 'grupo']);
+    if (colCategoria >= 0) score += 1;
+
+    // Bonus por nome da aba
+    let nomeL = nome.toLowerCase();
+    if (nomeL.match(/lanç|lanc|extrato|transaç|transac|moviment|financ|fluxo|caixa|contas/)) {
+      score += 2;
+    }
+
+    // Valida se tem dados numéricos na coluna de valor
+    if (colValor >= 0 && dados.length > 1) {
+      let temNumero = false;
+      for (let i = 1; i < Math.min(dados.length, 10); i++) {
+        let v = dados[i][colValor];
+        if (typeof v === 'number' || (typeof v === 'string' && v.match(/[\d.,]+/))) {
+          temNumero = true;
+          break;
+        }
+      }
+      if (temNumero) score += 2;
+    }
+
+    // Precisa ter no mínimo data + descrição + valor
+    if (colData >= 0 && colDesc >= 0 && colValor >= 0 && score > melhorScore) {
+      melhorScore = score;
+      melhorMatch = {
+        sheet: sheet,
+        dados: dados,
+        headers: dados[0],
+        headersLower: headers,
+        colData: colData,
+        colDesc: colDesc,
+        colValor: colValor,
+        colTipo: colTipo,
+        colCategoria: colCategoria,
+        numRows: dados.length - 1
+      };
+    }
+  }
+
+  // Se não encontrou com match exato, tenta match fuzzy nos headers
+  if (!melhorMatch) {
+    melhorMatch = detectarPorConteudo(sheets, abasIgnorar);
+  }
+
+  return melhorMatch;
+}
+
+/**
+ * Fallback: detecta por conteúdo (procura colunas com datas e números)
+ */
+function detectarPorConteudo(sheets, abasIgnorar) {
+  for (let sheet of sheets) {
+    if (abasIgnorar.indexOf(sheet.getName()) >= 0) continue;
+
+    let dados = sheet.getDataRange().getValues();
+    if (dados.length < 3) continue;
+
+    let numCols = dados[0].length;
+    let colData = -1, colDesc = -1, colValor = -1;
+
+    for (let c = 0; c < numCols; c++) {
+      let dateCount = 0, numCount = 0, textCount = 0;
+
+      for (let r = 1; r < Math.min(dados.length, 15); r++) {
+        let val = dados[r][c];
+        if (val instanceof Date || (typeof val === 'string' && val.match(/^\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}$/))) {
+          dateCount++;
+        } else if (typeof val === 'number') {
+          numCount++;
+        } else if (typeof val === 'string' && val.length > 3) {
+          textCount++;
+        }
+      }
+
+      let sampleSize = Math.min(dados.length - 1, 14);
+      if (dateCount > sampleSize * 0.5 && colData < 0) colData = c;
+      else if (numCount > sampleSize * 0.5 && colValor < 0) colValor = c;
+      else if (textCount > sampleSize * 0.5 && colDesc < 0) colDesc = c;
+    }
+
+    if (colData >= 0 && colDesc >= 0 && colValor >= 0) {
+      return {
+        sheet: sheet,
+        dados: dados,
+        headers: dados[0],
+        headersLower: dados[0].map(h => String(h).toLowerCase().trim()),
+        colData: colData,
+        colDesc: colDesc,
+        colValor: colValor,
+        colTipo: -1,
+        colCategoria: -1,
+        numRows: dados.length - 1
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * Match flexível de coluna
+ */
+function matchColumn(headers, candidates) {
+  // Match exato
+  for (let i = 0; i < headers.length; i++) {
+    for (let c of candidates) {
+      if (headers[i] === c) return i;
+    }
+  }
+  // Match parcial (contém)
+  for (let i = 0; i < headers.length; i++) {
+    for (let c of candidates) {
+      if (headers[i].indexOf(c) >= 0 || c.indexOf(headers[i]) >= 0) return i;
+    }
+  }
+  return -1;
 }
 
 
@@ -87,43 +272,55 @@ function main() {
 // CLASSIFICAÇÃO DE LANÇAMENTOS
 // ===========================================================================================================
 
-/**
- * Lê lançamentos não classificados e usa Claude para classificá-los
- */
-function classificarLancamentos() {
-  Logger.log('--- Iniciando classificação de lançamentos ---');
-  let ss = getSpreadsheet();
+function classificarLancamentos(ss, detecao) {
+  ss = ss || SpreadsheetApp.getActiveSpreadsheet();
+  detecao = detecao || detectarAbaLancamentos(ss);
+  if (!detecao) { Logger.log('Nenhuma aba de lançamentos encontrada.'); return; }
 
-  let abaLanc = getOrCreateSheet(ss, ABA_LANCAMENTOS, ['Data', 'Descrição', 'Valor', 'Tipo', 'Categoria', 'Subcategoria', 'Observações']);
-  let abaClass = getOrCreateSheet(ss, ABA_CLASSIFICADOS, ['Data', 'Descrição', 'Valor', 'Tipo', 'Categoria', 'Subcategoria', 'Confiança', 'Observações', 'Classificado Em']);
+  Logger.log('--- Classificando lançamentos ---');
+  let abaLanc = detecao.sheet;
+  let dados = detecao.dados;
 
-  let dados = abaLanc.getDataRange().getValues();
-  if (dados.length <= 1) {
-    Logger.log('Nenhum lançamento encontrado.');
-    return;
+  // Garante que existe coluna de Categoria na aba original
+  let colCategoria = detecao.colCategoria;
+  if (colCategoria < 0) {
+    // Adiciona coluna "Categoria" ao final dos headers
+    colCategoria = detecao.headers.length;
+    abaLanc.getRange(1, colCategoria + 1).setValue('Categoria');
+    detecao.colCategoria = colCategoria;
   }
 
-  let headers = dados[0];
-  let colData = findColumn(headers, ['data', 'date']);
-  let colDesc = findColumn(headers, ['descrição', 'descricao', 'description', 'desc']);
-  let colValor = findColumn(headers, ['valor', 'value', 'amount', 'quantia']);
-  let colTipo = findColumn(headers, ['tipo', 'type']);
-  let colCategoria = findColumn(headers, ['categoria', 'category']);
+  // Adiciona coluna de Tipo se não existir
+  let colTipo = detecao.colTipo;
+  if (colTipo < 0) {
+    colTipo = colCategoria + 1;
+    if (!detecao.headers[colTipo]) {
+      abaLanc.getRange(1, colTipo + 1).setValue('Tipo');
+      detecao.colTipo = colTipo;
+    }
+  }
 
-  // Filtra lançamentos sem categoria
+  // Cria aba de classificados
+  let abaClass = getOrCreateSheet(ss, ABA_CLASSIFICADOS,
+    ['Data', 'Descrição', 'Valor', 'Tipo', 'Categoria', 'Subcategoria', 'Confiança', 'Observação', 'Classificado Em']);
+
+  // Coleta lançamentos não classificados
   let naoClassificados = [];
   let linhasOrigem = [];
   for (let i = 1; i < dados.length; i++) {
     let row = dados[i];
-    if (row[colDesc] && (!row[colCategoria] || String(row[colCategoria]).trim() === '')) {
+    let desc = row[detecao.colDesc];
+    let categoriaAtual = colCategoria < row.length ? row[colCategoria] : '';
+
+    if (desc && String(desc).trim() && (!categoriaAtual || String(categoriaAtual).trim() === '')) {
       naoClassificados.push({
-        linha: i + 1,
-        data: row[colData],
-        descricao: row[colDesc],
-        valor: row[colValor],
-        tipo: row[colTipo] || ''
+        idx: i,
+        data: formatarData(row[detecao.colData]),
+        descricao: String(desc).trim(),
+        valor: parseValor(row[detecao.colValor]),
+        tipo: detecao.colTipo >= 0 && detecao.colTipo < row.length ? String(row[detecao.colTipo]).trim() : ''
       });
-      linhasOrigem.push(i + 1);
+      linhasOrigem.push(i + 1); // 1-based para getRange
     }
   }
 
@@ -132,100 +329,92 @@ function classificarLancamentos() {
     return;
   }
 
-  Logger.log(`Encontrados ${naoClassificados.length} lançamentos para classificar.`);
+  Logger.log('Lançamentos para classificar: ' + naoClassificados.length);
 
-  // Carrega categorias customizadas (se existirem na aba Config)
-  let categorias = carregarCategorias(ss);
+  // Classifica em lotes de 25
+  let batchSize = 25;
+  let totalClassificados = 0;
 
-  // Classifica em lotes de 20
-  let batchSize = 20;
   for (let i = 0; i < naoClassificados.length; i += batchSize) {
     let batch = naoClassificados.slice(i, i + batchSize);
-    let classificacoes = classificarComClaude(batch, categorias);
+    let result = classificarBatchComClaude(batch);
 
-    if (!classificacoes || classificacoes.length === 0) {
-      Logger.log(`Erro ao classificar lote ${Math.floor(i / batchSize) + 1}. Pulando.`);
+    if (!result) {
+      Logger.log('Erro no lote ' + (Math.floor(i / batchSize) + 1) + '. Continuando...');
       continue;
     }
 
-    // Escreve classificações na aba original e na aba de classificados
-    for (let j = 0; j < classificacoes.length; j++) {
-      let c = classificacoes[j];
+    for (let j = 0; j < batch.length; j++) {
+      let c = result[j] || { tipo: 'despesa', categoria: 'Outras Despesas', subcategoria: '', confianca: 'baixa', observacao: 'Classificação automática falhou' };
       let lancamento = batch[j];
       let linhaOrigem = linhasOrigem[i + j];
 
-      // Atualiza a aba de lançamentos original
-      if (colCategoria >= 0) {
-        abaLanc.getRange(linhaOrigem, colCategoria + 1).setValue(c.categoria);
+      // Atualiza aba original
+      abaLanc.getRange(linhaOrigem, colCategoria + 1).setValue(c.categoria);
+      if (detecao.colTipo >= 0) {
+        abaLanc.getRange(linhaOrigem, detecao.colTipo + 1).setValue(c.tipo);
       }
 
-      // Adiciona à aba de classificados
+      // Adiciona à aba classificados
       abaClass.appendRow([
         lancamento.data,
         lancamento.descricao,
         lancamento.valor,
-        c.tipo,
-        c.categoria,
+        c.tipo || 'despesa',
+        c.categoria || 'Outras Despesas',
         c.subcategoria || '',
-        c.confianca || 'alta',
+        c.confianca || 'media',
         c.observacao || '',
         new Date()
       ]);
+
+      totalClassificados++;
     }
 
-    Logger.log(`Lote ${Math.floor(i / batchSize) + 1} classificado: ${classificacoes.length} itens.`);
-
-    if (i + batchSize < naoClassificados.length) {
-      Utilities.sleep(1000);
-    }
+    Logger.log('Lote ' + (Math.floor(i / batchSize) + 1) + ' OK: ' + batch.length + ' itens');
+    if (i + batchSize < naoClassificados.length) Utilities.sleep(1500);
   }
 
-  Logger.log(`--- Classificação concluída: ${naoClassificados.length} lançamentos processados ---`);
+  Logger.log('--- Classificação concluída: ' + totalClassificados + ' lançamentos ---');
 }
 
 /**
- * Envia lançamentos para Claude classificar
+ * Classifica um batch de lançamentos via Claude
  */
-function classificarComClaude(lancamentos, categorias) {
-  let listaLancamentos = lancamentos.map((l, idx) =>
-    `${idx + 1}. Data: ${l.data} | Descrição: "${l.descricao}" | Valor: R$ ${l.valor} | Tipo informado: ${l.tipo || 'não informado'}`
-  ).join('\n');
+function classificarBatchComClaude(batch) {
+  let lista = batch.map(function(l, idx) {
+    return (idx + 1) + '. Data: ' + l.data + ' | Descrição: "' + l.descricao + '" | Valor: R$ ' + l.valor + ' | Tipo: ' + (l.tipo || 'n/a');
+  }).join('\n');
 
-  let listaCategorias = `
-RECEITAS: ${categorias.receitas.join(', ')}
-DESPESAS: ${categorias.despesas.join(', ')}`;
+  let prompt = 'Você é um assistente financeiro expert em classificar lançamentos bancários brasileiros.\n\n' +
+    'CATEGORIAS DISPONÍVEIS:\n' +
+    'RECEITAS: ' + CATEGORIAS.receitas.join(', ') + '\n' +
+    'DESPESAS: ' + CATEGORIAS.despesas.join(', ') + '\n\n' +
+    'LANÇAMENTOS:\n' + lista + '\n\n' +
+    'Retorne APENAS um JSON array (sem markdown, sem ```). Cada item:\n' +
+    '{"idx":1,"tipo":"receita|despesa","categoria":"...","subcategoria":"...","confianca":"alta|media|baixa","observacao":"..."}\n\n' +
+    'REGRAS:\n' +
+    '- Valores positivos geralmente são receitas, negativos são despesas\n' +
+    '- PIX, TED, DOC podem ser receita ou despesa - analise o contexto da descrição\n' +
+    '- "Salário", "pagto salario" = Salário (receita)\n' +
+    '- Supermercado, restaurante, iFood, Rappi = Alimentação\n' +
+    '- Uber, 99, combustível, estacionamento = Transporte\n' +
+    '- Netflix, Spotify, Amazon Prime = Assinaturas/Serviços\n' +
+    '- Se não tiver certeza, use confianca "baixa"\n\n' +
+    'JSON array:';
 
-  let prompt = `Você é um assistente financeiro especializado em classificação de lançamentos bancários brasileiros.
-
-Classifique cada lançamento abaixo em uma das categorias listadas. Retorne APENAS um JSON array, sem markdown, sem explicação.
-
-CATEGORIAS DISPONÍVEIS:
-${listaCategorias}
-
-LANÇAMENTOS PARA CLASSIFICAR:
-${listaLancamentos}
-
-Retorne EXATAMENTE um JSON array onde cada item tem:
-- "idx": número do lançamento (1-based)
-- "tipo": "receita" ou "despesa"
-- "categoria": uma das categorias listadas acima
-- "subcategoria": detalhe mais específico se aplicável (ex: "Uber" para Transporte)
-- "confianca": "alta", "media" ou "baixa"
-- "observacao": breve justificativa da classificação
-
-Responda APENAS com o JSON array. Nenhum texto adicional.`;
-
-  let resposta = callClaude(prompt, 2000);
+  let resposta = callClaude(prompt, 3000);
   if (!resposta) return null;
 
   try {
-    // Limpa possíveis wrappers de markdown
     resposta = resposta.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    let classificacoes = JSON.parse(resposta);
-    return classificacoes;
+    // Tenta encontrar o array JSON na resposta
+    let match = resposta.match(/\[[\s\S]*\]/);
+    if (match) resposta = match[0];
+    return JSON.parse(resposta);
   } catch (e) {
-    Logger.log('Erro ao parsear resposta do Claude: ' + e.message);
-    Logger.log('Resposta recebida: ' + resposta.substring(0, 500));
+    Logger.log('Erro ao parsear JSON: ' + e.message);
+    Logger.log('Resposta: ' + resposta.substring(0, 300));
     return null;
   }
 }
@@ -235,119 +424,135 @@ Responda APENAS com o JSON array. Nenhum texto adicional.`;
 // RELATÓRIO MENSAL
 // ===========================================================================================================
 
-/**
- * Gera relatório mensal consolidado
- */
-function gerarRelatorioMensal() {
+function gerarRelatorioMensal(ss) {
+  ss = ss || SpreadsheetApp.getActiveSpreadsheet();
   Logger.log('--- Gerando relatório mensal ---');
-  let ss = getSpreadsheet();
 
   let abaClass = ss.getSheetByName(ABA_CLASSIFICADOS);
-  if (!abaClass) {
-    Logger.log('Aba de classificados não encontrada. Execute a classificação primeiro.');
+  if (!abaClass || abaClass.getLastRow() <= 1) {
+    Logger.log('Nenhum dado classificado. Execute a classificação primeiro.');
     return;
   }
 
   let dados = abaClass.getDataRange().getValues();
-  if (dados.length <= 1) {
-    Logger.log('Nenhum dado classificado encontrado.');
-    return;
-  }
-
-  // Agrupa por mês/ano e categoria
   let resumo = {};
-  let headers = dados[0];
 
   for (let i = 1; i < dados.length; i++) {
     let row = dados[i];
     let data = new Date(row[0]);
     if (isNaN(data.getTime())) continue;
 
-    let mesAno = Utilities.formatDate(data, 'America/Sao_Paulo', 'yyyy-MM');
-    let mesAnoLabel = Utilities.formatDate(data, 'America/Sao_Paulo', 'MMMM yyyy');
-    let valor = parseFloat(row[2]) || 0;
-    let tipo = String(row[3]).toLowerCase();
-    let categoria = row[4] || 'Sem Categoria';
+    let mesAno = Utilities.formatDate(data, TIMEZONE, 'yyyy-MM');
+    let mesLabel = Utilities.formatDate(data, TIMEZONE, 'MM/yyyy');
+    let valor = Math.abs(parseFloat(row[2]) || 0);
+    let tipo = String(row[3]).toLowerCase().trim();
+    let categoria = String(row[4] || 'Sem Categoria').trim();
 
     if (!resumo[mesAno]) {
-      resumo[mesAno] = { label: mesAnoLabel, receitas: {}, despesas: {}, totalReceitas: 0, totalDespesas: 0 };
+      resumo[mesAno] = { label: mesLabel, receitas: {}, despesas: {}, totalRec: 0, totalDesp: 0 };
     }
 
     if (tipo === 'receita') {
-      resumo[mesAno].receitas[categoria] = (resumo[mesAno].receitas[categoria] || 0) + Math.abs(valor);
-      resumo[mesAno].totalReceitas += Math.abs(valor);
+      resumo[mesAno].receitas[categoria] = (resumo[mesAno].receitas[categoria] || 0) + valor;
+      resumo[mesAno].totalRec += valor;
     } else {
-      resumo[mesAno].despesas[categoria] = (resumo[mesAno].despesas[categoria] || 0) + Math.abs(valor);
-      resumo[mesAno].totalDespesas += Math.abs(valor);
+      resumo[mesAno].despesas[categoria] = (resumo[mesAno].despesas[categoria] || 0) + valor;
+      resumo[mesAno].totalDesp += valor;
     }
   }
 
-  // Escreve na aba de relatório
-  let abaRel = getOrCreateSheet(ss, ABA_RELATORIO_MENSAL, []);
+  // Monta o relatório
+  let abaRel = getOrCreateSheet(ss, ABA_RELATORIO, []);
   abaRel.clear();
 
-  let outputRows = [];
-  outputRows.push(['RELATÓRIO FINANCEIRO MENSAL', '', '', '', 'Gerado em: ' + new Date().toLocaleString('pt-BR')]);
-  outputRows.push(['']);
-
+  let rows = [];
   let meses = Object.keys(resumo).sort();
+
+  // Header
+  rows.push(['RELATÓRIO FINANCEIRO MENSAL', '', '', '', '', 'Gerado: ' + Utilities.formatDate(new Date(), TIMEZONE, 'dd/MM/yyyy HH:mm')]);
+  rows.push(['', '', '', '', '', '']);
+
+  // Tabela resumo geral
+  rows.push(['Mês', 'Receitas (R$)', 'Despesas (R$)', 'Saldo (R$)', '% Poupança', 'Status']);
+
+  let totalRec = 0, totalDesp = 0;
+
   for (let mes of meses) {
     let r = resumo[mes];
-    let saldo = r.totalReceitas - r.totalDespesas;
+    let saldo = r.totalRec - r.totalDesp;
+    let poupanca = r.totalRec > 0 ? ((saldo / r.totalRec) * 100).toFixed(1) + '%' : '0%';
+    totalRec += r.totalRec;
+    totalDesp += r.totalDesp;
 
-    outputRows.push(['📅 ' + r.label.toUpperCase(), '', '', '', '']);
-    outputRows.push(['']);
-    outputRows.push(['', 'RECEITAS', '', 'DESPESAS', '']);
-    outputRows.push(['', 'Categoria', 'Valor (R$)', 'Categoria', 'Valor (R$)']);
-
-    let receitasCats = Object.entries(r.receitas).sort((a, b) => b[1] - a[1]);
-    let despesasCats = Object.entries(r.despesas).sort((a, b) => b[1] - a[1]);
-    let maxRows = Math.max(receitasCats.length, despesasCats.length);
-
-    for (let i = 0; i < maxRows; i++) {
-      let recCat = receitasCats[i] ? receitasCats[i][0] : '';
-      let recVal = receitasCats[i] ? receitasCats[i][1] : '';
-      let despCat = despesasCats[i] ? despesasCats[i][0] : '';
-      let despVal = despesasCats[i] ? despesasCats[i][1] : '';
-      outputRows.push(['', recCat, recVal, despCat, despVal]);
-    }
-
-    outputRows.push(['']);
-    outputRows.push(['', 'Total Receitas:', formatCurrency(r.totalReceitas), 'Total Despesas:', formatCurrency(r.totalDespesas)]);
-    outputRows.push(['', 'SALDO DO MÊS:', formatCurrency(saldo), saldo >= 0 ? '✅ Positivo' : '⚠️ Negativo', '']);
-    outputRows.push(['']);
-    outputRows.push(['─────────────────────────────────────────────────────']);
-    outputRows.push(['']);
+    rows.push([
+      r.label,
+      r.totalRec.toFixed(2),
+      r.totalDesp.toFixed(2),
+      saldo.toFixed(2),
+      poupanca,
+      saldo >= 0 ? 'Positivo' : 'Negativo'
+    ]);
   }
 
-  // Resumo geral
-  let totalGeralReceitas = meses.reduce((sum, m) => sum + resumo[m].totalReceitas, 0);
-  let totalGeralDespesas = meses.reduce((sum, m) => sum + resumo[m].totalDespesas, 0);
-  let saldoGeral = totalGeralReceitas - totalGeralDespesas;
+  let saldoTotal = totalRec - totalDesp;
+  rows.push([
+    'TOTAL',
+    totalRec.toFixed(2),
+    totalDesp.toFixed(2),
+    saldoTotal.toFixed(2),
+    totalRec > 0 ? ((saldoTotal / totalRec) * 100).toFixed(1) + '%' : '0%',
+    saldoTotal >= 0 ? 'Positivo' : 'Negativo'
+  ]);
 
-  outputRows.push(['RESUMO GERAL']);
-  outputRows.push(['Total de Receitas:', formatCurrency(totalGeralReceitas)]);
-  outputRows.push(['Total de Despesas:', formatCurrency(totalGeralDespesas)]);
-  outputRows.push(['Saldo Total:', formatCurrency(saldoGeral)]);
-  outputRows.push(['Média Mensal de Receitas:', formatCurrency(totalGeralReceitas / meses.length)]);
-  outputRows.push(['Média Mensal de Despesas:', formatCurrency(totalGeralDespesas / meses.length)]);
-  outputRows.push(['Taxa de Poupança:', ((saldoGeral / totalGeralReceitas) * 100).toFixed(1) + '%']);
+  rows.push(['', '', '', '', '', '']);
+  rows.push(['', '', '', '', '', '']);
 
-  if (outputRows.length > 0) {
-    let maxCols = Math.max(...outputRows.map(r => Array.isArray(r) ? r.length : 1));
-    let normalizedRows = outputRows.map(r => {
-      let row = Array.isArray(r) ? r : [r];
-      while (row.length < maxCols) row.push('');
-      return row;
+  // Detalhamento por mês
+  for (let mes of meses) {
+    let r = resumo[mes];
+    rows.push(['DETALHE - ' + r.label, '', '', '', '', '']);
+    rows.push(['Categoria', 'Tipo', 'Valor (R$)', '% do Total', '', '']);
+
+    let allCats = [];
+    for (let cat in r.receitas) {
+      allCats.push({ cat: cat, tipo: 'Receita', valor: r.receitas[cat] });
+    }
+    for (let cat in r.despesas) {
+      allCats.push({ cat: cat, tipo: 'Despesa', valor: r.despesas[cat] });
+    }
+    allCats.sort(function(a, b) { return b.valor - a.valor; });
+
+    let totalMes = r.totalRec + r.totalDesp;
+    for (let item of allCats) {
+      let pct = totalMes > 0 ? ((item.valor / totalMes) * 100).toFixed(1) + '%' : '0%';
+      rows.push([item.cat, item.tipo, item.valor.toFixed(2), pct, '', '']);
+    }
+
+    rows.push(['', '', '', '', '', '']);
+  }
+
+  // Escreve tudo
+  if (rows.length > 0) {
+    let maxCols = 6;
+    let normalized = rows.map(function(r) {
+      while (r.length < maxCols) r.push('');
+      return r.slice(0, maxCols);
     });
-    abaRel.getRange(1, 1, normalizedRows.length, maxCols).setValues(normalizedRows);
+    abaRel.getRange(1, 1, normalized.length, maxCols).setValues(normalized);
   }
 
   // Formatação
   abaRel.getRange(1, 1).setFontSize(14).setFontWeight('bold');
-  abaRel.autoResizeColumns(1, 5);
+  abaRel.getRange(3, 1, 1, 6).setFontWeight('bold').setBackground('#4a86c8').setFontColor('white');
+  abaRel.autoResizeColumns(1, 6);
 
-  Logger.log('--- Relatório mensal gerado com sucesso ---');
+  // Formatação de números como moeda
+  let lastRow = abaRel.getLastRow();
+  if (lastRow > 3) {
+    abaRel.getRange(4, 2, lastRow - 3, 3).setNumberFormat('#,##0.00');
+  }
+
+  Logger.log('--- Relatório gerado: ' + meses.length + ' meses ---');
 }
 
 
@@ -355,239 +560,188 @@ function gerarRelatorioMensal() {
 // ANÁLISE FINANCEIRA COM IA
 // ===========================================================================================================
 
-/**
- * Gera análise financeira completa usando Claude
- */
-function gerarAnaliseCompleta() {
-  Logger.log('--- Gerando análise financeira com IA ---');
-  let ss = getSpreadsheet();
+function gerarAnaliseCompleta(ss) {
+  ss = ss || SpreadsheetApp.getActiveSpreadsheet();
+  Logger.log('--- Gerando análise com IA ---');
 
   let abaClass = ss.getSheetByName(ABA_CLASSIFICADOS);
-  if (!abaClass) {
-    Logger.log('Aba de classificados não encontrada. Execute a classificação primeiro.');
-    return;
-  }
-
-  let dados = abaClass.getDataRange().getValues();
-  if (dados.length <= 1) {
+  if (!abaClass || abaClass.getLastRow() <= 1) {
     Logger.log('Nenhum dado para analisar.');
     return;
   }
 
-  // Prepara resumo dos dados para enviar ao Claude
-  let resumoDados = prepararResumoDados(dados);
+  let dados = abaClass.getDataRange().getValues();
+  let resumo = construirResumoParaIA(dados);
 
-  let prompt = `Você é um consultor financeiro pessoal experiente analisando os dados financeiros de um cliente brasileiro.
-
-DADOS FINANCEIROS:
-${resumoDados}
-
-Com base nesses dados, forneça uma análise financeira completa e estruturada em português brasileiro. Inclua:
-
-1. **VISÃO GERAL**: Resumo da saúde financeira em 2-3 parágrafos.
-
-2. **ANÁLISE DE RECEITAS**: De onde vem o dinheiro, estabilidade, tendências.
-
-3. **ANÁLISE DE DESPESAS**:
-   - Top 5 maiores categorias de gasto
-   - Identificação de gastos recorrentes vs variáveis
-   - Gastos que parecem acima da média
-
-4. **TENDÊNCIAS**: Comparação mês a mês, padrões sazonais identificados.
-
-5. **ALERTAS E RISCOS**:
-   - Meses com saldo negativo
-   - Categorias com crescimento preocupante
-   - Dependência de fonte única de renda (se aplicável)
-
-6. **RECOMENDAÇÕES**: 5 ações concretas e específicas para melhorar a situação financeira.
-
-7. **SCORE DE SAÚDE FINANCEIRA**: Nota de 0 a 100 com justificativa.
-
-Seja direto, use números reais dos dados, e dê conselhos práticos.`;
+  let prompt = 'Você é um consultor financeiro pessoal analisando dados de um cliente brasileiro.\n\n' +
+    'DADOS:\n' + resumo + '\n\n' +
+    'Forneça em português brasileiro:\n\n' +
+    '1. VISÃO GERAL (2-3 parágrafos sobre saúde financeira)\n\n' +
+    '2. ANÁLISE DE RECEITAS (fontes, estabilidade, tendências)\n\n' +
+    '3. ANÁLISE DE DESPESAS\n' +
+    '   - Top 5 categorias de gasto com valores\n' +
+    '   - Gastos recorrentes vs variáveis\n' +
+    '   - Gastos acima da média\n\n' +
+    '4. TENDÊNCIAS (evolução mês a mês, padrões)\n\n' +
+    '5. ALERTAS E RISCOS\n' +
+    '   - Meses com saldo negativo\n' +
+    '   - Categorias com crescimento preocupante\n' +
+    '   - Concentração de renda\n\n' +
+    '6. RECOMENDAÇÕES (5 ações concretas e práticas)\n\n' +
+    '7. SCORE DE SAÚDE FINANCEIRA (0-100 com justificativa)\n\n' +
+    'Use números reais dos dados. Seja direto e prático.';
 
   let analise = callClaude(prompt, 4000);
-  if (!analise) {
-    Logger.log('Erro ao gerar análise.');
-    return;
-  }
+  if (!analise) { Logger.log('Erro ao gerar análise.'); return; }
 
-  // Escreve na aba de análise
   let abaAnalise = getOrCreateSheet(ss, ABA_ANALISE, []);
   abaAnalise.clear();
 
   let linhas = analise.split('\n');
   let outputRows = [
-    ['ANÁLISE FINANCEIRA - Gerada por IA em ' + new Date().toLocaleString('pt-BR')],
+    ['ANÁLISE FINANCEIRA - Gerada por IA em ' + Utilities.formatDate(new Date(), TIMEZONE, 'dd/MM/yyyy HH:mm')],
     ['']
   ];
-
   for (let linha of linhas) {
     outputRows.push([linha]);
   }
 
   abaAnalise.getRange(1, 1, outputRows.length, 1).setValues(outputRows);
   abaAnalise.getRange(1, 1).setFontSize(14).setFontWeight('bold');
-  abaAnalise.setColumnWidth(1, 800);
+  abaAnalise.setColumnWidth(1, 900);
 
-  Logger.log('--- Análise financeira gerada com sucesso ---');
+  Logger.log('--- Análise gerada com sucesso ---');
 }
 
 /**
- * Prepara um resumo estruturado dos dados para enviar ao Claude
+ * Constrói resumo numérico dos dados para enviar ao Claude
  */
-function prepararResumoDados(dados) {
-  let resumoPorMes = {};
-  let todasCategorias = {};
-  let totalGeral = { receitas: 0, despesas: 0 };
+function construirResumoParaIA(dados) {
+  let porMes = {};
+  let porCategoria = {};
+  let total = { rec: 0, desp: 0 };
+  let count = 0;
 
   for (let i = 1; i < dados.length; i++) {
-    let row = dados[i];
-    let data = new Date(row[0]);
+    let data = new Date(dados[i][0]);
     if (isNaN(data.getTime())) continue;
 
-    let mesAno = Utilities.formatDate(data, 'America/Sao_Paulo', 'yyyy-MM');
-    let valor = Math.abs(parseFloat(row[2]) || 0);
-    let tipo = String(row[3]).toLowerCase();
-    let categoria = row[4] || 'Sem Categoria';
+    let mesAno = Utilities.formatDate(data, TIMEZONE, 'yyyy-MM');
+    let valor = Math.abs(parseFloat(dados[i][2]) || 0);
+    let tipo = String(dados[i][3] || '').toLowerCase().trim();
+    let cat = String(dados[i][4] || 'Sem Categoria').trim();
+    count++;
 
-    if (!resumoPorMes[mesAno]) {
-      resumoPorMes[mesAno] = { receitas: 0, despesas: 0, categorias: {} };
-    }
+    if (!porMes[mesAno]) porMes[mesAno] = { rec: 0, desp: 0, cats: {} };
 
     if (tipo === 'receita') {
-      resumoPorMes[mesAno].receitas += valor;
-      totalGeral.receitas += valor;
+      porMes[mesAno].rec += valor;
+      total.rec += valor;
     } else {
-      resumoPorMes[mesAno].despesas += valor;
-      totalGeral.despesas += valor;
+      porMes[mesAno].desp += valor;
+      total.desp += valor;
     }
 
-    if (!resumoPorMes[mesAno].categorias[categoria]) {
-      resumoPorMes[mesAno].categorias[categoria] = 0;
-    }
-    resumoPorMes[mesAno].categorias[categoria] += valor;
-
-    todasCategorias[categoria] = (todasCategorias[categoria] || 0) + valor;
+    porMes[mesAno].cats[cat] = (porMes[mesAno].cats[cat] || 0) + valor;
+    porCategoria[cat] = (porCategoria[cat] || 0) + valor;
   }
 
-  let texto = `PERÍODO: ${Object.keys(resumoPorMes).sort()[0]} a ${Object.keys(resumoPorMes).sort().pop()}\n`;
-  texto += `TOTAL DE LANÇAMENTOS: ${dados.length - 1}\n`;
-  texto += `TOTAL RECEITAS: R$ ${totalGeral.receitas.toFixed(2)}\n`;
-  texto += `TOTAL DESPESAS: R$ ${totalGeral.despesas.toFixed(2)}\n`;
-  texto += `SALDO: R$ ${(totalGeral.receitas - totalGeral.despesas).toFixed(2)}\n\n`;
+  let meses = Object.keys(porMes).sort();
+  let txt = 'Período: ' + (meses[0] || 'N/A') + ' a ' + (meses[meses.length - 1] || 'N/A') + '\n';
+  txt += 'Total lançamentos: ' + count + '\n';
+  txt += 'Total receitas: R$ ' + total.rec.toFixed(2) + '\n';
+  txt += 'Total despesas: R$ ' + total.desp.toFixed(2) + '\n';
+  txt += 'Saldo: R$ ' + (total.rec - total.desp).toFixed(2) + '\n\n';
 
-  texto += 'RESUMO MENSAL:\n';
-  let meses = Object.keys(resumoPorMes).sort();
-  for (let mes of meses) {
-    let r = resumoPorMes[mes];
-    let saldo = r.receitas - r.despesas;
-    texto += `  ${mes}: Receitas R$ ${r.receitas.toFixed(2)} | Despesas R$ ${r.despesas.toFixed(2)} | Saldo R$ ${saldo.toFixed(2)}\n`;
-
-    let cats = Object.entries(r.categorias).sort((a, b) => b[1] - a[1]).slice(0, 5);
-    for (let [cat, val] of cats) {
-      texto += `    - ${cat}: R$ ${val.toFixed(2)}\n`;
+  txt += 'POR MÊS:\n';
+  for (let m of meses) {
+    let r = porMes[m];
+    txt += '  ' + m + ': Rec R$ ' + r.rec.toFixed(2) + ' | Desp R$ ' + r.desp.toFixed(2) + ' | Saldo R$ ' + (r.rec - r.desp).toFixed(2) + '\n';
+    let topCats = Object.entries(r.cats).sort(function(a, b) { return b[1] - a[1]; }).slice(0, 5);
+    for (let tc of topCats) {
+      txt += '    - ' + tc[0] + ': R$ ' + tc[1].toFixed(2) + '\n';
     }
   }
 
-  texto += '\nTOP CATEGORIAS (TOTAL):\n';
-  let topCats = Object.entries(todasCategorias).sort((a, b) => b[1] - a[1]).slice(0, 10);
-  for (let [cat, val] of topCats) {
-    let pct = ((val / (totalGeral.receitas + totalGeral.despesas)) * 100).toFixed(1);
-    texto += `  ${cat}: R$ ${val.toFixed(2)} (${pct}%)\n`;
+  txt += '\nTOP CATEGORIAS:\n';
+  let topGeral = Object.entries(porCategoria).sort(function(a, b) { return b[1] - a[1]; }).slice(0, 15);
+  for (let tc of topGeral) {
+    let pct = ((tc[1] / (total.rec + total.desp)) * 100).toFixed(1);
+    txt += '  ' + tc[0] + ': R$ ' + tc[1].toFixed(2) + ' (' + pct + '%)\n';
   }
 
-  return texto;
+  return txt;
 }
 
 
 // ===========================================================================================================
-// CONFIGURAÇÃO E INICIALIZAÇÃO
+// TRIGGER AUTOMÁTICO
 // ===========================================================================================================
 
 /**
- * Inicializa a planilha com a estrutura necessária
+ * Configura trigger para executar automaticamente quando a planilha é editada
+ * Classifica novos lançamentos a cada edição na aba de lançamentos
  */
-function inicializarPlanilha() {
-  let ss = getSpreadsheet();
-
-  // Aba de lançamentos
-  let abaLanc = getOrCreateSheet(ss, ABA_LANCAMENTOS, ['Data', 'Descrição', 'Valor', 'Tipo', 'Categoria', 'Subcategoria', 'Observações']);
-
-  // Aba de classificados
-  getOrCreateSheet(ss, ABA_CLASSIFICADOS, ['Data', 'Descrição', 'Valor', 'Tipo', 'Categoria', 'Subcategoria', 'Confiança', 'Observações', 'Classificado Em']);
-
-  // Aba de relatório
-  getOrCreateSheet(ss, ABA_RELATORIO_MENSAL, []);
-
-  // Aba de análise
-  getOrCreateSheet(ss, ABA_ANALISE, []);
-
-  // Aba de configuração
-  let abaConfig = getOrCreateSheet(ss, ABA_CONFIG, ['Configuração', 'Valor']);
-  let configData = abaConfig.getDataRange().getValues();
-  if (configData.length <= 1) {
-    let configRows = [
-      ['api_key', ''],
-      ['model', CLAUDE_MODEL],
-      ['categorias_receitas', CATEGORIAS_PADRAO.receitas.join(', ')],
-      ['categorias_despesas', CATEGORIAS_PADRAO.despesas.join(', ')],
-      ['timezone', 'America/Sao_Paulo'],
-      ['moeda', 'BRL'],
-      ['idioma', 'pt-BR']
-    ];
-    abaConfig.getRange(2, 1, configRows.length, 2).setValues(configRows);
+function configurarTrigger() {
+  // Remove triggers existentes deste projeto
+  let triggers = ScriptApp.getProjectTriggers();
+  for (let t of triggers) {
+    if (t.getHandlerFunction() === 'onEditClassificar') {
+      ScriptApp.deleteTrigger(t);
+    }
   }
 
-  // Formatação da aba de lançamentos
-  abaLanc.setFrozenRows(1);
-  abaLanc.getRange(1, 1, 1, 7).setFontWeight('bold').setBackground('#4a86c8').setFontColor('white');
-  abaLanc.autoResizeColumns(1, 7);
+  // Cria trigger onChange (mais confiável que onEdit para mudanças via API)
+  ScriptApp.newTrigger('onEditClassificar')
+    .forSpreadsheet(SpreadsheetApp.getActiveSpreadsheet())
+    .onChange()
+    .create();
 
-  Logger.log('Planilha inicializada com sucesso.');
+  // Cria trigger diário para relatório + análise
+  let existing = ScriptApp.getProjectTriggers().filter(function(t) {
+    return t.getHandlerFunction() === 'gerarRelatorioEAnalise';
+  });
+  if (existing.length === 0) {
+    ScriptApp.newTrigger('gerarRelatorioEAnalise')
+      .timeBased()
+      .everyDays(1)
+      .atHour(6)
+      .create();
+  }
+
   try {
-    SpreadsheetApp.getUi().alert('Planilha inicializada com sucesso!\n\nAbas criadas:\n- Lançamentos\n- Classificados\n- Relatório Mensal\n- Análise\n- Config\n\nInsira sua API Key na aba Config ou no código.');
+    SpreadsheetApp.getUi().alert(
+      'Triggers configurados!\n\n' +
+      '1. Classificação automática: executa quando a planilha é editada\n' +
+      '2. Relatório + Análise: executa diariamente às 6h'
+    );
+  } catch(e) {}
+
+  Logger.log('Triggers configurados.');
+}
+
+/**
+ * Handler do trigger onChange - classifica novos lançamentos
+ */
+function onEditClassificar() {
+  try {
+    let ss = SpreadsheetApp.getActiveSpreadsheet();
+    let detecao = detectarAbaLancamentos(ss);
+    if (detecao) {
+      classificarLancamentos(ss, detecao);
+    }
   } catch (e) {
-    // Se não tiver UI disponível (ex: rodando via trigger)
+    Logger.log('Erro no trigger: ' + e.message);
   }
 }
 
 /**
- * Carrega categorias customizadas da aba Config
+ * Handler do trigger diário - gera relatório e análise
  */
-function carregarCategorias(ss) {
-  let categorias = JSON.parse(JSON.stringify(CATEGORIAS_PADRAO));
-
-  let abaConfig = ss.getSheetByName(ABA_CONFIG);
-  if (!abaConfig) return categorias;
-
-  let configData = abaConfig.getDataRange().getValues();
-  for (let i = 1; i < configData.length; i++) {
-    let chave = String(configData[i][0]).trim();
-    let valor = String(configData[i][1]).trim();
-
-    if (chave === 'categorias_receitas' && valor) {
-      categorias.receitas = valor.split(',').map(s => s.trim()).filter(s => s);
-    }
-    if (chave === 'categorias_despesas' && valor) {
-      categorias.despesas = valor.split(',').map(s => s.trim()).filter(s => s);
-    }
-  }
-
-  return categorias;
-}
-
-/**
- * Abre popup para configurar categorias
- */
-function abrirConfigCategorias() {
-  let ss = getSpreadsheet();
-  let abaConfig = getOrCreateSheet(ss, ABA_CONFIG, ['Configuração', 'Valor']);
-  ss.setActiveSheet(abaConfig);
-  SpreadsheetApp.getUi().alert(
-    'Configure suas categorias na aba Config.\n\n' +
-    'Edite as linhas "categorias_receitas" e "categorias_despesas" com suas categorias separadas por vírgula.'
-  );
+function gerarRelatorioEAnalise() {
+  let ss = SpreadsheetApp.getActiveSpreadsheet();
+  gerarRelatorioMensal(ss);
+  gerarAnaliseCompleta(ss);
 }
 
 
@@ -595,18 +749,6 @@ function abrirConfigCategorias() {
 // UTILITÁRIOS
 // ===========================================================================================================
 
-/**
- * Obtém a planilha configurada
- */
-function getSpreadsheet() {
-  let id = SPREADSHEET_URL.match(/[-\w]{25,}/);
-  if (!id) throw new Error('URL da planilha inválida. Verifique SPREADSHEET_URL.');
-  return SpreadsheetApp.openById(id[0]);
-}
-
-/**
- * Obtém ou cria uma aba na planilha
- */
 function getOrCreateSheet(ss, name, headers) {
   let sheet = ss.getSheetByName(name);
   if (!sheet) {
@@ -614,110 +756,74 @@ function getOrCreateSheet(ss, name, headers) {
     if (headers && headers.length > 0) {
       sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
       sheet.setFrozenRows(1);
-      sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+      sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#4a86c8').setFontColor('white');
     }
-    Logger.log(`Aba "${name}" criada.`);
   }
   return sheet;
 }
 
-/**
- * Encontra o índice de uma coluna pelo nome (case-insensitive)
- */
-function findColumn(headers, possibleNames) {
-  for (let i = 0; i < headers.length; i++) {
-    let h = String(headers[i]).toLowerCase().trim();
-    for (let name of possibleNames) {
-      if (h === name.toLowerCase()) return i;
-    }
+function formatarData(val) {
+  if (val instanceof Date) {
+    return Utilities.formatDate(val, TIMEZONE, 'dd/MM/yyyy');
   }
-  return -1;
+  return String(val);
 }
 
-/**
- * Formata valor como moeda brasileira
- */
-function formatCurrency(value) {
-  return 'R$ ' + parseFloat(value).toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+function parseValor(val) {
+  if (typeof val === 'number') return val;
+  if (typeof val === 'string') {
+    // Lida com formato brasileiro: 1.234,56
+    let clean = val.replace(/[R$\s]/g, '').replace(/\./g, '').replace(',', '.');
+    let num = parseFloat(clean);
+    return isNaN(num) ? 0 : num;
+  }
+  return 0;
 }
 
-/**
- * Chama a API do Claude (Anthropic)
- */
 function callClaude(prompt, maxTokens) {
-  let apiKey = getApiKey();
+  let apiKey = ANTHROPIC_API_KEY;
   if (!apiKey) {
-    Logger.log('ERRO: API Key da Anthropic não configurada. Defina em ANTHROPIC_API_KEY ou na aba Config.');
+    // Tenta buscar de PropertiesService
+    try {
+      apiKey = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
+    } catch(e) {}
+  }
+
+  if (!apiKey) {
+    Logger.log('ERRO: Configure ANTHROPIC_API_KEY no código ou em Script Properties.');
     return null;
   }
 
-  let url = 'https://api.anthropic.com/v1/messages';
   let payload = {
     'model': CLAUDE_MODEL,
     'max_tokens': maxTokens || 2000,
-    'messages': [
-      { 'role': 'user', 'content': prompt }
-    ]
+    'messages': [{ 'role': 'user', 'content': prompt }]
   };
 
   let options = {
     'method': 'POST',
     'muteHttpExceptions': true,
     'contentType': 'application/json',
-    'headers': {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01'
-    },
+    'headers': { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
     'payload': JSON.stringify(payload)
   };
 
-  let response = UrlFetchApp.fetch(url, options);
-  let rCode = response.getResponseCode();
-  let rText = response.getContentText();
+  // Tenta até 2 vezes
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let response = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', options);
+    let code = response.getResponseCode();
 
-  if (rCode !== 200) {
-    Logger.log(`Erro na API Anthropic (${rCode}): ${rText.substring(0, 300)}`);
-    // Retry uma vez após 2 segundos
-    Utilities.sleep(2000);
-    response = UrlFetchApp.fetch(url, options);
-    rCode = response.getResponseCode();
-    rText = response.getContentText();
-
-    if (rCode !== 200) {
-      Logger.log(`Erro persistente na API (${rCode}).`);
+    if (code === 200) {
+      let json = JSON.parse(response.getContentText());
+      if (json && json.content && json.content.length > 0) {
+        return json.content[0].text;
+      }
       return null;
     }
+
+    Logger.log('API erro (tentativa ' + (attempt + 1) + '): ' + code + ' - ' + response.getContentText().substring(0, 200));
+    if (attempt === 0) Utilities.sleep(2000);
   }
 
-  let rJson = JSON.parse(rText);
-  if (rJson && rJson.content && rJson.content.length > 0) {
-    return rJson.content[0].text;
-  }
-
-  Logger.log('Resposta inesperada da API.');
   return null;
-}
-
-/**
- * Obtém a API Key (prioridade: aba Config > constante no código)
- */
-function getApiKey() {
-  // Tenta buscar da aba Config
-  try {
-    let ss = getSpreadsheet();
-    let abaConfig = ss.getSheetByName(ABA_CONFIG);
-    if (abaConfig) {
-      let configData = abaConfig.getDataRange().getValues();
-      for (let i = 1; i < configData.length; i++) {
-        if (String(configData[i][0]).trim() === 'api_key') {
-          let key = String(configData[i][1]).trim();
-          if (key) return key;
-        }
-      }
-    }
-  } catch (e) {
-    // Falha silenciosa, usa constante
-  }
-
-  return ANTHROPIC_API_KEY || null;
 }
